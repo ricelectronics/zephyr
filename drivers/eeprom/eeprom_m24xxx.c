@@ -25,10 +25,10 @@ struct eeprom_m24xxx_config {
 	uint16_t i2c_addr;
 	struct gpio_dt_spec wp_gpio;
 	size_t size;
-	//size_t pagesize;
-	//uint8_t addr_width;
-	//bool readonly;
-	//uint16_t timeout;
+	size_t pagesize;
+	uint8_t addr_width;
+	bool readonly;
+	uint16_t timeout;
 	eeprom_api_read read_fn;
 	eeprom_api_write write_fn;
 };
@@ -69,12 +69,12 @@ static int eeprom_m24xxx_read(const struct device *dev, off_t offset, void *buf,
 	if (!len) {
 		return 0;
 	}
-	/*
+
 	if ((offset + len) > config->size) {
 		LOG_WRN("attempt to read past device boundary");
 		return -EINVAL;
 	}
-	*/
+
 	k_mutex_lock(&data->lock, K_FOREVER);
 	while (len) {
 		ret = config->read_fn(dev, offset, pbuf, len);
@@ -99,7 +99,7 @@ static size_t eeprom_m24xxx_limit_write_count(const struct device *dev, off_t of
 	const struct eeprom_m24xxx_config *config = dev->config;
 	size_t count = len;
 	off_t page_boundary;
-	/*
+
 	// We can at most write one page at a time
 	if (count > config->pagesize) {
 		count = config->pagesize;
@@ -110,7 +110,7 @@ static size_t eeprom_m24xxx_limit_write_count(const struct device *dev, off_t of
 	if (offset + count > page_boundary) {
 		count = page_boundary - offset;
 	}
-	*/
+
 	return count;
 }
 
@@ -120,7 +120,7 @@ static int eeprom_m24xxx_write(const struct device *dev, off_t offset, const voi
 	struct eeprom_m24xxx_data *data = dev->data;
 	const uint8_t *pbuf = buf;
 	int ret;
-	/*
+
 	if (config->readonly) {
 		LOG_WRN("attempt to write to read-only device");
 		return -EACCES;
@@ -134,7 +134,7 @@ static int eeprom_m24xxx_write(const struct device *dev, off_t offset, const voi
 		printk("attempt to write past device boundary");
 		return -EINVAL;
 	}
-	*/
+
 	k_mutex_lock(&data->lock, K_FOREVER);
 
 	ret = eeprom_m24xxx_write_enable(dev);
@@ -499,31 +499,32 @@ static int eeprom_at25_write(const struct device *dev, off_t offset, const void 
 
 static int eeprom_m24xxx_init(const struct device *dev)
 {
-	printk("device init...\n");
+	LOG_INF("device init...\n");
 	const struct eeprom_m24xxx_config *config = dev->config;
 	struct eeprom_m24xxx_data *data = dev->data;
 	int err;
 
 	k_mutex_init(&data->lock);
-
+	LOG_INF("check if bus device is ready...\n");
 	if (!device_is_ready(config->bus_dev)) {
-		printk("parent bus device not ready");
+		LOG_ERR("parent bus device not ready");
 		return -EINVAL;
 	}
 
+	LOG_INF("check if write protect pin is ready...\n");
 	if (config->wp_gpio.port) {
 		if (!device_is_ready(config->wp_gpio.port)) {
-			printk("wp gpio device not ready");
+			LOG_ERR("wp gpio device not ready");
 			return -EINVAL;
 		}
 
 		err = gpio_pin_configure_dt(&config->wp_gpio, GPIO_OUTPUT_ACTIVE);
 		if (err) {
-			printk("failed to configure WP GPIO pin (err %d)", err);
+			LOG_ERR("failed to configure WP GPIO pin (err %d)", err);
 			return err;
 		}
 	}
-
+	LOG_INF("init ok\n");
 	return 0;
 }
 
@@ -532,45 +533,19 @@ static const struct eeprom_driver_api eeprom_m24xxx_api = {
 	.write = eeprom_m24xxx_write,
 	.size = eeprom_m24xxx_size,
 };
-/*
-#define INST_DT_M24XXX(inst, t) DT_INST(inst, st_m24##t)
 
-#define EEPROM_M24XXX_DEVICE(n, t)                                                                 \
-	static const struct eeprom_m24xxx_config eeprom_m24##t##_config_##n = {                    \
-		.bus_dev = DEVICE_DT_GET(DT_BUS(INST_DT_M24XXX(n, t))),                            \
-		.i2c_addr = DT_REG_ADDR(INST_DT_M24XXX(n, t)),                                     \
-		.wp_gpio = GPIO_DT_SPEC_GET_OR(INST_DT_M24XXX(n, t), wp_gpios, { 0 }),             \
-		.size = DT_PROP(INST_DT_M24XXX(n, t), size),                                       \
-		.pagesize = DT_PROP(INST_DT_M24XXX(n, t), pagesize),                               \
-		.addr_width = DT_PROP(INST_DT_M24XXX(n, t), address_width),                        \
-		.readonly = DT_PROP(INST_DT_M24XXX(n, t), read_only),                              \
-		.timeout = DT_PROP(INST_DT_M24XXX(n, t), timeout),                                 \
-		.read_fn = eeprom_m24##t##_read,                                                   \
-		.write_fn = eeprom_m24##t##_write,                                                 \
-	};                                                                                         \
-	static struct eeprom_m24xxx_data eeprom_m24##t##_data_##n;                                 \
-	DEVICE_DT_DEFINE(INST_DT_M24XXX(n, t), &eeprom_m24xxx_init, NULL,                          \
-			 &eeprom_m24##t##_data_##n, &eeprom_m24##t##_config_##n, POST_KERNEL,      \
-			 CONFIG_EEPROM_m24xxx_INIT_PRIORITY, &eeprom_m24xxx_api)
-
-#define EEPROM_M24M02_DEVICE(n) EEPROM_M24XXX_DEVICE(n, m02)
-
-#define CALL_WITH_ARG(arg, expr) expr(arg);
-
-#define INST_DT_M24XXX_FOREACH(t, inst_expr)                                                       \
-	UTIL_LISTIFY(DT_NUM_INST_STATUS_OKAY(st_m24##t), CALL_WITH_ARG, inst_expr)
-*/
-
-//#define EEPROM_M24XXX_DEVICE
+#if DT_NODE_HAS_STATUS(DT_DRV_INST(0), okay)
 static const struct eeprom_m24xxx_config eeprom_m24xxx_config_n = {
 	.bus_dev = DT_INST_BUS_LABEL(0),
 	.i2c_addr = DT_INST_REG_ADDR(0),
 	.wp_gpio = GPIO_DT_SPEC_INST_GET_OR(0, wp_gpios, { 0 }),
-	.size = DT_INST_PROP(0, size),
-	//.pagesize = DT_INST_PROP(0, pagesize),
-	//.addr_width = DT_INST_PROP(0, address_width),
-	//.readonly = DT_INST_PROP(0, read_only),
-	//.timeout = DT_INST_PROP(0, timeout),
+	//TODO: There is a bug here preventing the data being read from the device tree
+	// if DT_INST_PROP is used instead of DT_INST_PROP_OR compilation always fails
+	.size = DT_INST_PROP_OR(0, size, 2000000),
+	.pagesize = DT_INST_PROP_OR(0, pagesize, 256),
+	.addr_width = DT_INST_PROP_OR(0, address_width, 0),
+	.readonly = DT_INST_PROP_OR(0, read_only, false),
+	.timeout = DT_INST_PROP_OR(0, timeout, 10),
 	.read_fn = eeprom_m24xxx_read,
 	.write_fn = eeprom_m24xxx_write,
 };
@@ -578,3 +553,4 @@ static const struct eeprom_m24xxx_config eeprom_m24xxx_config_n = {
 static struct eeprom_m24xxx_data eeprom_m24xxx_data_n;
 DEVICE_DT_INST_DEFINE(0, &eeprom_m24xxx_init, NULL, &eeprom_m24xxx_data_n, &eeprom_m24xxx_config_n,
 		      POST_KERNEL, CONFIG_EEPROM_M24XXX_INIT_PRIORITY, &eeprom_m24xxx_api);
+#endif
