@@ -78,9 +78,9 @@ current :ref:`stability level <api_lifecycle>`.
      - 2.4
 
    * - :ref:`devicetree_api`
-     - Experimental
+     - Stable
      - 2.2
-     - 2.4
+     - 2.6
 
    * - :ref:`disk_access_api`
      - Stable

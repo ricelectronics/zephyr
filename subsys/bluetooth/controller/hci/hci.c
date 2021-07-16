@@ -26,6 +26,7 @@
 
 #include "util/util.h"
 #include "util/memq.h"
+#include "util/mem.h"
 
 #include "hal/ecb.h"
 #include "hal/ccm.h"
@@ -2658,7 +2659,7 @@ static void le_df_connectionless_iq_report(struct pdu_data *pdu_rx,
 	sep->rssi_ant_id = iq_report->rssi_ant_id;
 	sep->cte_type = iq_report->cte_info.type;
 
-	sep->chan_idx = lll->data_chan_id;
+	sep->chan_idx = iq_report->chan_idx;
 	sep->per_evt_counter = sys_cpu_to_le16(lll->event_counter);
 
 	if (sep->cte_type == BT_HCI_LE_AOA_CTE) {
@@ -5018,9 +5019,13 @@ static void le_ext_adv_report(struct pdu_data *pdu_data,
 			       sys_le16_to_cpu(si->offs),
 			       si->offs_units,
 			       sys_le16_to_cpu(si->interval),
-			       (si->sca_chm[4] >> 5),
+			       ((si->sca_chm[PDU_SYNC_INFO_SCA_CHM_SCA_BYTE_OFFSET] &
+				 PDU_SYNC_INFO_SCA_CHM_SCA_BIT_MASK) >>
+				PDU_SYNC_INFO_SCA_CHM_SCA_BIT_POS),
 			       si->sca_chm[0], si->sca_chm[1], si->sca_chm[2],
-			       si->sca_chm[3], (si->sca_chm[4] & 0x3F),
+			       si->sca_chm[3],
+			       (si->sca_chm[PDU_SYNC_INFO_SCA_CHM_SCA_BYTE_OFFSET] &
+				~PDU_SYNC_INFO_SCA_CHM_SCA_BIT_MASK),
 			       sys_le32_to_cpu(si->aa),
 			       si->crc_init[0], si->crc_init[1],
 			       si->crc_init[2], sys_le16_to_cpu(si->evt_cntr));

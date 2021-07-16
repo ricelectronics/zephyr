@@ -71,6 +71,7 @@ struct gatt_sub {
 #endif /* CONFIG_BT_GATT_CLIENT */
 
 static struct gatt_sub subscriptions[SUB_MAX];
+static sys_slist_t callback_list;
 
 static const uint16_t gap_appearance = CONFIG_BT_DEVICE_APPEARANCE;
 
@@ -98,11 +99,11 @@ static ssize_t write_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 {
 	char value[CONFIG_BT_DEVICE_NAME_MAX] = {};
 
-	if (offset) {
+	if (offset >= sizeof(value)) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
 	}
 
-	if (len >= sizeof(value)) {
+	if (offset + len >= sizeof(value)) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
 
@@ -1106,6 +1107,8 @@ void bt_gatt_init(void)
 
 	bt_gatt_service_init();
 
+	sys_slist_init(&callback_list);
+
 #if defined(CONFIG_BT_GATT_CACHING)
 	k_work_init_delayable(&db_hash.work, db_hash_process);
 
@@ -1156,6 +1159,11 @@ submit:
 	sc_work_submit(SC_TIMEOUT);
 }
 #endif /* BT_GATT_DYNAMIC_DB || (BT_GATT_CACHING && BT_SETTINGS) */
+
+void bt_gatt_cb_register(struct bt_gatt_cb *cb)
+{
+	sys_slist_append(&callback_list, &cb->node);
+}
 
 #if defined(CONFIG_BT_GATT_DYNAMIC_DB)
 static void db_changed(void)
@@ -2246,32 +2254,47 @@ static bool gatt_find_by_uuid(struct notify_data *found,
 	return found->attr ? true : false;
 }
 
+struct bt_gatt_attr *bt_gatt_find_by_uuid(const struct bt_gatt_attr *attr,
+					  uint16_t attr_count,
+					  const struct bt_uuid *uuid)
+{
+	struct bt_gatt_attr *found = NULL;
+	uint16_t start_handle = bt_gatt_attr_value_handle(attr);
+	uint16_t end_handle = start_handle && attr_count ?
+			      start_handle + attr_count : 0xffff;
+
+	bt_gatt_foreach_attr_type(start_handle, end_handle, uuid, NULL, 1,
+				  find_next, &found);
+
+	return found;
+}
+
 int bt_gatt_notify_cb(struct bt_conn *conn,
 		      struct bt_gatt_notify_params *params)
 {
 	struct notify_data data;
 
 	__ASSERT(params, "invalid parameters\n");
-	__ASSERT(params->attr, "invalid parameters\n");
+	__ASSERT(params->attr || params->uuid, "invalid parameters\n");
 
 	if (!atomic_test_bit(bt_dev.flags, BT_DEV_READY)) {
 		return -EAGAIN;
 	}
 
-	data.attr = params->attr;
-
 	if (conn && conn->state != BT_CONN_CONNECTED) {
 		return -ENOTCONN;
 	}
 
+	data.attr = params->attr;
 	data.handle = bt_gatt_attr_get_handle(data.attr);
-	if (!data.handle) {
-		return -ENOENT;
-	}
 
 	/* Lookup UUID if it was given */
 	if (params->uuid) {
 		if (!gatt_find_by_uuid(&data, params->uuid)) {
+			return -ENOENT;
+		}
+	} else {
+		if (!data.handle) {
 			return -ENOENT;
 		}
 	}
@@ -2328,26 +2351,26 @@ int bt_gatt_indicate(struct bt_conn *conn,
 	struct notify_data data;
 
 	__ASSERT(params, "invalid parameters\n");
-	__ASSERT(params->attr, "invalid parameters\n");
+	__ASSERT(params->attr || params->uuid, "invalid parameters\n");
 
 	if (!atomic_test_bit(bt_dev.flags, BT_DEV_READY)) {
 		return -EAGAIN;
 	}
 
-	data.attr = params->attr;
-
 	if (conn && conn->state != BT_CONN_CONNECTED) {
 		return -ENOTCONN;
 	}
 
+	data.attr = params->attr;
 	data.handle = bt_gatt_attr_get_handle(data.attr);
-	if (!data.handle) {
-		return -ENOENT;
-	}
 
 	/* Lookup UUID if it was given */
 	if (params->uuid) {
 		if (!gatt_find_by_uuid(&data, params->uuid)) {
+			return -ENOENT;
+		}
+	} else {
+		if (!data.handle) {
 			return -ENOENT;
 		}
 	}
@@ -4853,6 +4876,8 @@ void bt_gatt_connected(struct bt_conn *conn)
 	 * enabling encryption will fail.
 	 */
 	if (IS_ENABLED(CONFIG_BT_SMP) &&
+	    (conn->role == BT_HCI_ROLE_MASTER ||
+	     IS_ENABLED(CONFIG_BT_GATT_AUTO_SEC_REQ)) &&
 	    bt_conn_get_security(conn) < data.sec) {
 		int err = bt_conn_set_security(conn, data.sec);
 
@@ -4865,6 +4890,17 @@ void bt_gatt_connected(struct bt_conn *conn)
 #if defined(CONFIG_BT_GATT_CLIENT)
 	add_subscriptions(conn);
 #endif /* CONFIG_BT_GATT_CLIENT */
+}
+
+void bt_gatt_att_max_mtu_changed(struct bt_conn *conn, uint16_t tx, uint16_t rx)
+{
+	struct bt_gatt_cb *cb;
+
+	SYS_SLIST_FOR_EACH_CONTAINER(&callback_list, cb, node) {
+		if (cb->att_mtu_updated) {
+			cb->att_mtu_updated(conn, tx, rx);
+		}
+	}
 }
 
 void bt_gatt_encrypt_change(struct bt_conn *conn)

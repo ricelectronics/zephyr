@@ -1,5 +1,3 @@
-/*  Bluetooth Mesh */
-
 /*
  * Copyright (c) 2018 Nordic Semiconductor ASA
  * Copyright (c) 2017 Intel Corporation
@@ -46,8 +44,6 @@ static inline void adv_send(struct net_buf *buf)
 		((bt_dev.hci_version >= BT_HCI_VERSION_5_0) ?
 			       ADV_INT_FAST_MS :
 			       ADV_INT_DEFAULT_MS);
-	const struct bt_mesh_send_cb *cb = BT_MESH_ADV(buf)->cb;
-	void *cb_data = BT_MESH_ADV(buf)->cb_data;
 	struct bt_le_adv_param param = {};
 	uint16_t duration, adv_int;
 	struct bt_data ad;
@@ -82,8 +78,9 @@ static inline void adv_send(struct net_buf *buf)
 	uint64_t time = k_uptime_get();
 
 	err = bt_le_adv_start(&param, &ad, 1, NULL, 0);
-	net_buf_unref(buf);
-	bt_mesh_adv_send_start(duration, err, cb, cb_data);
+
+	bt_mesh_adv_send_start(duration, err, BT_MESH_ADV(buf));
+
 	if (err) {
 		BT_ERR("Advertising failed: err %d", err);
 		return;
@@ -94,7 +91,6 @@ static inline void adv_send(struct net_buf *buf)
 	k_sleep(K_MSEC(duration));
 
 	err = bt_le_adv_stop();
-	bt_mesh_adv_send_end(err, cb, cb_data);
 	if (err) {
 		BT_ERR("Stopping advertising failed: err %d", err);
 		return;
@@ -110,7 +106,7 @@ static void adv_thread(void *p1, void *p2, void *p3)
 	while (1) {
 		struct net_buf *buf;
 
-		if (IS_ENABLED(CONFIG_BT_MESH_PROXY)) {
+		if (IS_ENABLED(CONFIG_BT_MESH_GATT_SERVER)) {
 			buf = net_buf_get(&bt_mesh_adv_queue, K_NO_WAIT);
 			while (!buf) {
 
@@ -137,9 +133,9 @@ static void adv_thread(void *p1, void *p2, void *p3)
 		if (BT_MESH_ADV(buf)->busy) {
 			BT_MESH_ADV(buf)->busy = 0U;
 			adv_send(buf);
-		} else {
-			net_buf_unref(buf);
 		}
+
+		net_buf_unref(buf);
 
 		/* Give other threads a chance to run */
 		k_yield();

@@ -20,10 +20,27 @@ menuconfig NPCX_HEADER
 
 if NPCX_HEADER
 
+config NPCX_IMAGE_OUTPUT_BIN
+	bool "Build npcx binary in BIN format"
+	default y
+	help
+	  Build a "raw" binary zephyr/zephyr.npcx.bin in the build directory.
+	  The name of this file can be customized with CONFIG_KERNEL_BIN_NAME.
+
+config NPCX_IMAGE_OUTPUT_HEX
+	bool "Build npcx binary in HEX format"
+	depends on NPCX_IMAGE_OUTPUT_BIN
+	help
+	  Build an HEX binary zephyr/zephyr.npcx.hex in the build directory.
+	  This is generated from the npcx BIN image.
+	  The name of this file can be customized with CONFIG_KERNEL_BIN_NAME.
+
 config NPCX_HEADER_CHIP
 	string
 	default "npcx7m6" if SOC_NPCX7M6FB || SOC_NPCX7M6FC
 	default "npcx7m7" if SOC_NPCX7M7FC
+	default "npcx9m3" if SOC_NPCX9M3F
+	default "npcx9m6" if SOC_NPCX9M6F
 
 choice
 	prompt "Clock rate to use for SPI flash"
@@ -162,5 +179,21 @@ endif # NPCX_HEADER
 
 # Select SoC Part No. and configuration options
 source "soc/arm/nuvoton_npcx/*/Kconfig.soc"
+
+config SOC_POWER_MANAGEMENT
+	bool "System Power Management in NPCX family"
+	depends on SOC_FAMILY_NPCX
+	help
+	  This option enables the board to implement SoC-specific power
+	  management policies whenever the kernel becomes idle. The power
+	  management subsystem will restore to the active state until an
+	  wake-up event is received no matter the system timer is expired or
+	  the other signals occurred such as GPIO, host access, and so on.
+
+config SOC_POWER_MANAGEMENT_TRACE
+	bool "Trace System Power Management in NPCX family"
+	depends on SOC_POWER_MANAGEMENT
+	help
+	  Internal config to enable runtime power management traces.
 
 endif # SOC_FAMILY_NPCX

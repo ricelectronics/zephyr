@@ -1038,7 +1038,7 @@ static void range_map_ptables(pentry_t *ptables, void *virt, uintptr_t phys,
 		if (zero_entry) {
 			entry_val = 0;
 		} else {
-			entry_val = (phys + offset) | entry_flags;
+			entry_val = (pentry_t)(phys + offset) | entry_flags;
 		}
 
 		page_map_set(ptables, dest_virt, entry_val, NULL, mask,
@@ -1906,6 +1906,9 @@ void arch_reserved_pages_update(void)
 		case X86_MEMMAP_ENTRY_DEFECTIVE:
 			__fallthrough;
 		default:
+			/* If any of three above cases satisfied, exit switch
+			 * and mark page reserved
+			 */
 			break;
 		}
 

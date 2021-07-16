@@ -1,5 +1,3 @@
-/*  Bluetooth Mesh */
-
 /*
  * Copyright (c) 2017 Intel Corporation
  * Copyright (c) 2020 Lingao Meng
@@ -73,6 +71,7 @@ enum {
 	WAIT_CONFIRM,           /* Wait for send confirm */
 	WAIT_AUTH,              /* Wait for auth response */
 	OOB_STATIC_KEY,         /* OOB Static Authentication */
+	WAIT_DH_KEY,            /* Wait for DH Key */
 
 	NUM_FLAGS,
 };

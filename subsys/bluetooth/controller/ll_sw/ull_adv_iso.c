@@ -58,11 +58,18 @@ uint8_t ll_big_create(uint8_t big_handle, uint8_t adv_handle, uint8_t num_bis,
 		      uint8_t packing, uint8_t framing, uint8_t encryption,
 		      uint8_t *bcode)
 {
+	uint8_t field_data[1 + sizeof(uint8_t *)];
+	struct ull_adv_ext_hdr_data hdr_data;
+	void *extra_data_prev, *extra_data;
 	struct lll_adv_sync *lll_adv_sync;
 	struct lll_adv_iso *lll_adv_iso;
+	struct pdu_adv *pdu_prev, *pdu;
 	struct node_rx_pdu *node_rx;
 	struct ll_adv_iso *adv_iso;
 	struct ll_adv_set *adv;
+	uint8_t ter_idx;
+	uint8_t *acad;
+	uint8_t err;
 
 	adv_iso = ull_adv_iso_get(big_handle);
 
@@ -130,6 +137,30 @@ uint8_t ll_big_create(uint8_t big_handle, uint8_t adv_handle, uint8_t num_bis,
 	if (num_bis != 1) {
 		return BT_HCI_ERR_MEM_CAPACITY_EXCEEDED;
 	}
+
+	/* Allocate next PDU */
+	err = ull_adv_sync_pdu_alloc(adv, 0, 0, NULL, &pdu_prev, &pdu,
+				     &extra_data_prev, &extra_data, &ter_idx);
+	if (err) {
+		return err;
+	}
+
+	/* Add ACAD to AUX_SYNC_IND */
+	hdr_data.field_data = field_data;
+	field_data[0] = sizeof(struct pdu_big_info) + 2;
+	err = ull_adv_sync_pdu_set_clear(lll_adv_sync, pdu_prev, pdu,
+					 ULL_ADV_PDU_HDR_FIELD_ACAD, 0U,
+					 &hdr_data);
+	if (err) {
+		return err;
+	}
+
+	memcpy(&acad, &field_data[1], sizeof(acad));
+	acad[0] = sizeof(struct pdu_big_info) + 1;
+	acad[1] = BT_DATA_BIG_INFO;
+
+	lll_adv_sync_data_enqueue(lll_adv_sync, ter_idx);
+
 	/* TODO: For now we can just use the unique BIG handle as the BIS
 	 * handle until we support multiple BIS
 	 */
@@ -145,8 +176,6 @@ uint8_t ll_big_create(uint8_t big_handle, uint8_t adv_handle, uint8_t num_bis,
 	adv_iso->framing = framing;
 	adv_iso->encryption = encryption;
 	memcpy(adv_iso->bcode, bcode, sizeof(adv_iso->bcode));
-
-	/* TODO: Add ACAD to AUX_SYNC_IND */
 
 	/* TODO: start sending BIS empty data packet for each BIS */
 	ull_adv_iso_start(adv_iso, 0 /* TODO: Calc ticks_anchor */);
@@ -198,12 +227,17 @@ uint8_t ll_big_test_create(uint8_t big_handle, uint8_t adv_handle,
 
 uint8_t ll_big_terminate(uint8_t big_handle, uint8_t reason)
 {
+	void *extra_data_prev, *extra_data;
 	struct lll_adv_sync *lll_adv_sync;
 	struct lll_adv_iso *lll_adv_iso;
+	struct pdu_adv *pdu_prev, *pdu;
 	struct node_rx_pdu *node_rx;
 	struct ll_adv_iso *adv_iso;
 	struct lll_adv *lll_adv;
+	struct ll_adv_set *adv;
+	uint8_t ter_idx;
 	uint32_t ret;
+	uint8_t err;
 
 	adv_iso = ull_adv_iso_get(big_handle);
 	if (!adv_iso) {
@@ -217,6 +251,23 @@ uint8_t ll_big_terminate(uint8_t big_handle, uint8_t reason)
 	}
 
 	lll_adv_sync = lll_adv->sync;
+	adv = HDR_LLL2ULL(lll_adv);
+
+	/* Allocate next PDU */
+	err = ull_adv_sync_pdu_alloc(adv, 0, 0, NULL, &pdu_prev, &pdu,
+				     &extra_data_prev, &extra_data, &ter_idx);
+	if (err) {
+		return err;
+	}
+
+	/* Remove ACAD to AUX_SYNC_IND */
+	err = ull_adv_sync_pdu_set_clear(lll_adv_sync, pdu_prev, pdu,
+					 0U, ULL_ADV_PDU_HDR_FIELD_ACAD, NULL);
+	if (err) {
+		return err;
+	}
+
+	lll_adv_sync_data_enqueue(lll_adv_sync, ter_idx);
 
 	/* TODO: Terminate all BIS data paths */
 

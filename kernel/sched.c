@@ -6,7 +6,7 @@
 #include <kernel.h>
 #include <ksched.h>
 #include <spinlock.h>
-#include <sched_priq.h>
+#include <kernel/sched_priq.h>
 #include <wait_q.h>
 #include <kswap.h>
 #include <kernel_arch_func.h>
@@ -48,7 +48,7 @@ LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
 
 struct k_spinlock sched_spinlock;
 
-static void update_cache(int);
+static void update_cache(int preempt_ok);
 static void end_thread(struct k_thread *thread);
 
 static inline int is_preempt(struct k_thread *thread)

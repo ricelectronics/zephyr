@@ -223,7 +223,10 @@ TAB_SIZE               = 8
 ALIASES                = "rst=\verbatim embed:rst:leading-asterisk" \
                          "endrst=\endverbatim"
 
-ALIASES += option{1}="\verbatim embed:rst:inline :option:`\1` \endverbatim"
+# WARNING: @option{} is deprecated and will be removed after next release.
+# @kconfig{} should be used instead.
+ALIASES += option{1}="\verbatim embed:rst:inline :kconfig:`\1` \endverbatim"
+ALIASES += kconfig{1}="\verbatim embed:rst:inline :kconfig:`\1` \endverbatim"
 ALIASES += req{1}="\ref ZEPH_\1 \"ZEPH-\1\" "
 ALIASES += satisfy{1}="\xrefitem satisfy \"Satisfies requirement\" \"Requirement Implementation\" \1"
 ALIASES += verify{1}="\xrefitem verify \"Verifies requirement\" \"Requirement Verification\" \1"
@@ -730,7 +733,7 @@ WARN_NO_PARAMDOC       = NO
 # a warning is encountered.
 # The default value is: NO.
 
-WARN_AS_ERROR          = YES
+WARN_AS_ERROR          = NO
 
 # The WARN_FORMAT tag determines the format of the warning messages that doxygen
 # can produce. The string should contain the $file, $line, and $text tags, which
@@ -2008,7 +2011,6 @@ PREDEFINED             = "CONFIG_ARCH_HAS_CUSTOM_BUSY_WAIT" \
                          "CONFIG_USE_SWITCH" \
                          "NET_MGMT_DEFINE_REQUEST_HANDLER(x)=" \
                          "DEVICE_DEFINE()=" \
-                         "BUILD_ASSERT_MSG()=" \
                          "BUILD_ASSERT()=" \
                          "__deprecated=" \
                          "__packed=" \

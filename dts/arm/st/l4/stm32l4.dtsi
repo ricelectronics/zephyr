@@ -93,6 +93,8 @@
 
 				write-block-size = <8>;
 				erase-block-size = <2048>;
+				/* maximum erase time(ms) for a 2K sector */
+				max-erase-time = <25>;
 			};
 		};
 
@@ -256,7 +258,7 @@
 			pwm {
 				compatible = "st,stm32-pwm";
 				status = "disabled";
-				st,prescaler = <10000>;
+				st,prescaler = <0>;
 				label = "PWM_1";
 				#pwm-cells = <3>;
 			};
@@ -292,7 +294,7 @@
 			pwm {
 				compatible = "st,stm32-pwm";
 				status = "disabled";
-				st,prescaler = <10000>;
+				st,prescaler = <0>;
 				label = "PWM_6";
 				#pwm-cells = <3>;
 			};
@@ -310,7 +312,7 @@
 			pwm {
 				compatible = "st,stm32-pwm";
 				status = "disabled";
-				st,prescaler = <10000>;
+				st,prescaler = <0>;
 				label = "PWM_15";
 				#pwm-cells = <3>;
 			};
@@ -328,7 +330,7 @@
 			pwm {
 				compatible = "st,stm32-pwm";
 				status = "disabled";
-				st,prescaler = <10000>;
+				st,prescaler = <0>;
 				label = "PWM_16";
 				#pwm-cells = <3>;
 			};

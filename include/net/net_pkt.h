@@ -239,6 +239,7 @@ struct net_pkt {
 	uint8_t ieee802154_lqi;  /* Link Quality Indicator */
 	uint8_t ieee802154_arb : 1; /* ACK Request Bit is set in the frame */
 	uint8_t ieee802154_ack_fpb : 1; /* Frame Pending Bit was set in the ACK */
+	uint8_t ieee802154_frame_retry : 1; /* The frame is being retransmitted. */
 #if defined(CONFIG_IEEE802154_2015)
 	uint8_t ieee802154_fv2015 : 1; /* Frame version is IEEE 802.15.4-2015 */
 	uint8_t ieee802154_ack_seb : 1; /* Security Enabled Bit was set in the ACK */
@@ -1007,6 +1008,17 @@ static inline void net_pkt_set_ieee802154_ack_fpb(struct net_pkt *pkt,
 	pkt->ieee802154_ack_fpb = fpb;
 }
 
+static inline bool net_pkt_ieee802154_frame_retry(struct net_pkt *pkt)
+{
+	return pkt->ieee802154_frame_retry;
+}
+
+static inline void net_pkt_set_ieee802154_frame_retry(struct net_pkt *pkt,
+						     bool frame_retry)
+{
+	pkt->ieee802154_frame_retry = frame_retry;
+}
+
 #if defined(CONFIG_IEEE802154_2015)
 static inline bool net_pkt_ieee802154_fv2015(struct net_pkt *pkt)
 {
@@ -1692,6 +1704,22 @@ size_t net_pkt_available_payload_buffer(struct net_pkt *pkt,
  * @param pkt The net_pkt which buffer will be trimmed
  */
 void net_pkt_trim_buffer(struct net_pkt *pkt);
+
+/**
+ * @brief Remove @a length bytes from tail of packet
+ *
+ * @details This function does not take packet cursor into account. It is a
+ *          helper to remove unneeded bytes from tail of packet (like appended
+ *          CRC). It takes care of buffer deallocation if removed bytes span
+ *          whole buffer(s).
+ *
+ * @param pkt    Network packet
+ * @param length Number of bytes to be removed
+ *
+ * @retval 0       On success.
+ * @retval -EINVAL If packet length is shorter than @a length.
+ */
+int net_pkt_remove_tail(struct net_pkt *pkt, size_t length);
 
 /**
  * @brief Initialize net_pkt cursor

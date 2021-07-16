@@ -21,7 +21,7 @@
 #include <init.h>
 #include <drivers/uart.h>
 #include <drivers/pinmux.h>
-#include <pinmux/stm32/pinmux_stm32.h>
+#include <pinmux/pinmux_stm32.h>
 #include <drivers/clock_control.h>
 
 #ifdef CONFIG_UART_ASYNC_API
@@ -320,6 +320,7 @@ static inline enum uart_config_flow_control uart_stm32_ll2cfg_hwctrl(uint32_t fc
 	return UART_CFG_FLOW_CTRL_NONE;
 }
 
+#ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
 static int uart_stm32_configure(const struct device *dev,
 				const struct uart_config *cfg)
 {
@@ -425,6 +426,7 @@ static int uart_stm32_config_get(const struct device *dev,
 		uart_stm32_get_hwctrl(dev));
 	return 0;
 }
+#endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
 
 static int uart_stm32_poll_in(const struct device *dev, unsigned char *c)
 {
@@ -1290,8 +1292,10 @@ static const struct uart_driver_api uart_stm32_driver_api = {
 	.poll_in = uart_stm32_poll_in,
 	.poll_out = uart_stm32_poll_out,
 	.err_check = uart_stm32_err_check,
+#ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
 	.configure = uart_stm32_configure,
 	.config_get = uart_stm32_config_get,
+#endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	.fifo_fill = uart_stm32_fifo_fill,
 	.fifo_read = uart_stm32_fifo_read,
@@ -1422,7 +1426,7 @@ static int uart_stm32_init(const struct device *dev)
 
 #ifdef CONFIG_PM_DEVICE
 static int uart_stm32_set_power_state(const struct device *dev,
-					      uint32_t new_state)
+					      enum pm_device_state new_state)
 {
 	USART_TypeDef *UartInstance = UART_STRUCT(dev);
 	struct uart_stm32_data *data = DEV_DATA(dev);
@@ -1461,13 +1465,12 @@ static int uart_stm32_set_power_state(const struct device *dev,
  */
 static int uart_stm32_pm_control(const struct device *dev,
 					 uint32_t ctrl_command,
-					 uint32_t *state, pm_device_cb cb,
-					 void *arg)
+					 enum pm_device_state *state)
 {
 	struct uart_stm32_data *data = DEV_DATA(dev);
 
 	if (ctrl_command == PM_DEVICE_STATE_SET) {
-		uint32_t new_state = *state;
+		enum pm_device_state new_state = *state;
 
 		if (new_state != data->pm_state) {
 			uart_stm32_set_power_state(dev, new_state);
@@ -1475,10 +1478,6 @@ static int uart_stm32_pm_control(const struct device *dev,
 	} else {
 		__ASSERT_NO_MSG(ctrl_command == PM_DEVICE_STATE_GET);
 		*state = data->pm_state;
-	}
-
-	if (cb) {
-		cb(dev, 0, state, arg);
 	}
 
 	return 0;
@@ -1568,7 +1567,7 @@ static const struct uart_stm32_config uart_stm32_cfg_##index = {	\
 		    .enr = DT_INST_CLOCKS_CELL(index, bits)		\
 	},								\
 	.hw_flow_control = DT_INST_PROP(index, hw_flow_control),	\
-	.parity = DT_INST_PROP_OR(index, parity, UART_CFG_PARITY_NONE),	\
+	.parity = DT_ENUM_IDX_OR(DT_DRV_INST(index), parity, UART_CFG_PARITY_NONE),	\
 	.pinctrl_list = uart_pins_##index,				\
 	.pinctrl_list_size = ARRAY_SIZE(uart_pins_##index),		\
 };									\
