@@ -29,6 +29,24 @@ config EEPROM_SHELL_BUFFER_SIZE
 	  Size of the buffer used for EEPROM read/write commands in
 	  the EEPROM shell.
 
+config EEPROM_M24XXX
+	bool
+	help
+	  Enable support for ST M24xxx (and compatible) I2C
+	  EEPROMs.
+
+config EEPROM_M24M02
+	bool "Atmel AT24 (and compatible) I2C EEPROM support"
+	depends on (I2C && EEPROM)
+	select EEPROM_M24XXX
+	help
+	  Enable support for ST M24M02 I2C EEPROM.
+
+config EEPROM_M24XXX_INIT_PRIORITY
+	int "M24XXX EEPROM init priority"
+	default 75
+	depends on EEPROM_M24XXX
+
 config EEPROM_AT2X
 	bool
 	help
