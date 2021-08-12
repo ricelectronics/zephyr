@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2017 Linaro Limited
  * Copyright (c) 2019 Centaur Analytics, Inc
+* Copyright (c) 2021 Marius Scholtz, RIC Electronics
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -422,7 +423,7 @@
 
 		adc1: adc@40012000 {
 			compatible = "st,stm32-adc";
-			reg = <0x40012000 0x400>;
+			reg = <0x40012000 0x50>;
 			clocks = <&rcc STM32_CLOCK_BUS_APB2 0x00000100>;
 			interrupts = <18 0>;
 			status = "disabled";

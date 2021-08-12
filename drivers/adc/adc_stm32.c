@@ -3,6 +3,7 @@
  * Copyright (c) 2019 Song Qiang <songqiang1304521@gmail.com>
  * Copyright (c) 2019 Endre Karlson
  * Copyright (c) 2020 Teslabs Engineering S.L.
+ * Copyright (c) 2021 Marius Scholtz, RIC Electronics
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -91,6 +92,7 @@ static const uint32_t table_resolution[] = {
 };
 
 #define SMP_TIME(x, y)		LL_ADC_SAMPLINGTIME_##x##CYCLE##y
+#define PRESCALAR(x, y)		LL_ADC_CLOCK_##y##_PCLK_DIV##x
 
 /*
  * Conversion time in ADC cycles. Many values should have been 0.5 less,
@@ -122,6 +124,13 @@ static const uint32_t table_samp_time[] = {
 	SMP_TIME(112, S),
 	SMP_TIME(144, S),
 	SMP_TIME(480, S),
+};
+static const uint16_t prescalar_tbl[4] = {2, 4, 6, 8};
+static const uint32_t table_prescalar_div[] = {
+	PRESCALAR(2,	SYNC),
+	PRESCALAR(4,	SYNC),
+	PRESCALAR(6,	SYNC),
+	PRESCALAR(8,	SYNC),
 };
 #elif defined(CONFIG_SOC_SERIES_STM32F3X)
 #ifdef ADC5_V1_1
@@ -215,7 +224,6 @@ struct adc_stm32_data {
 	const struct device *dev;
 	uint16_t *buffer;
 	uint16_t *repeat_buffer;
-
 	uint8_t resolution;
 	uint8_t channel_count;
 #if defined(CONFIG_SOC_SERIES_STM32F0X) || \
@@ -227,11 +235,16 @@ struct adc_stm32_data {
 
 struct adc_stm32_cfg {
 	ADC_TypeDef *base;
+	const uint16_t prescalar;
 	void (*irq_cfg_func)(void);
 	struct stm32_pclken pclken;
 	const struct soc_gpio_pinctrl *pinctrl;
 	size_t pinctrl_len;
 };
+
+#ifdef CONFIG_ADC_STM32_SHARED_IRQS
+static bool init_irq = true;
+#endif
 
 static int check_buffer_size(const struct adc_sequence *sequence,
 			     uint8_t active_channels)
@@ -432,8 +445,40 @@ static void adc_stm32_isr(const struct device *dev)
 
 	adc_context_on_sampling_done(&data->ctx, dev);
 
-	LOG_DBG("ISR triggered.");
+	LOG_DBG("%s ISR triggered.", dev->name);
 }
+
+#ifdef CONFIG_ADC_STM32_SHARED_IRQS
+bool adc_stm32_is_irq_active(ADC_TypeDef *adc)
+{
+	return LL_ADC_IsActiveFlag_EOCS(adc) ||
+	       LL_ADC_IsActiveFlag_OVR(adc) ||
+	       LL_ADC_IsActiveFlag_JEOS(adc) ||
+	       LL_ADC_IsActiveFlag_AWD1(adc);
+}
+
+#define HANDLE_IRQS(index)							\
+	static const struct device *dev_##index = DEVICE_DT_INST_GET(index);	\
+	const struct adc_stm32_cfg *cfg_##index = dev_##index->config;		\
+	ADC_TypeDef *adc_##index = (ADC_TypeDef *)(cfg_##index->base);		\
+										\
+	if (adc_stm32_is_irq_active(adc_##index)) {				\
+		adc_stm32_isr(dev_##index);					\
+	}
+
+static void adc_stm32_shared_irq_handler(void)
+{
+	DT_INST_FOREACH_STATUS_OKAY(HANDLE_IRQS)
+}
+
+static void adc_stm32_cfg_func_isr(void)
+{
+	IRQ_CONNECT(DT_INST_IRQN(0),
+		    DT_INST_IRQ(0, priority),
+		    adc_stm32_shared_irq_handler, NULL, 0);
+	irq_enable(DT_INST_IRQN(0));
+}
+#endif
 
 static int adc_stm32_read(const struct device *dev,
 			  const struct adc_sequence *sequence)
@@ -481,7 +526,7 @@ static int adc_stm32_check_acq_time(uint16_t acq_time)
 		return 0;
 	}
 
-	LOG_ERR("Conversion time not supportted.");
+	LOG_ERR("Conversion time not supported.");
 	return -EINVAL;
 }
 
@@ -517,6 +562,49 @@ static void adc_stm32_setup_speed(const struct device *dev, uint8_t id,
 		__LL_ADC_DECIMAL_NB_TO_CHANNEL(id),
 		table_samp_time[acq_time_index]);
 #endif
+}
+
+#if defined(CONFIG_SOC_SERIES_STM32F2X) ||	\
+	defined(CONFIG_SOC_SERIES_STM32F4X) ||	\
+	defined(CONFIG_SOC_SERIES_STM32F7X)
+static uint32_t adc_stm32_get_prescalar(uint16_t prescalar)
+{
+	for (int i = 0; i < ARRAY_SIZE(prescalar_tbl); i++) {
+		if (prescalar == prescalar_tbl[i]) {
+			return table_prescalar_div[i];
+		}
+	}
+
+	LOG_WRN("Conversion time not supported, using default");
+	return LL_ADC_CLOCK_SYNC_PCLK_DIV4;
+}
+#endif
+
+static void adc_stm32_setup_prescalar(const struct adc_stm32_cfg *config, ADC_TypeDef *adc)
+{
+	#if defined(CONFIG_SOC_SERIES_STM32F2X) || \
+		defined(CONFIG_SOC_SERIES_STM32F4X) || \
+		defined(CONFIG_SOC_SERIES_STM32F7X)
+		LOG_DBG("Init prescalar to DIV%d", config->prescalar);
+		LL_ADC_SetCommonClock(__LL_ADC_COMMON_INSTANCE(adc),
+				      adc_stm32_get_prescalar(config->prescalar));
+	#elif defined(CONFIG_SOC_SERIES_STM32F0X) || \
+		defined(CONFIG_SOC_SERIES_STM32L0X) || \
+		defined(CONFIG_SOC_SERIES_STM32WLX)
+		LL_ADC_SetClock(adc, LL_ADC_CLOCK_SYNC_PCLK_DIV4);
+	#elif defined(STM32F3X_ADC_V1_1) || \
+		defined(CONFIG_SOC_SERIES_STM32L4X) || \
+		defined(CONFIG_SOC_SERIES_STM32L5X) || \
+		defined(CONFIG_SOC_SERIES_STM32WBX) || \
+		defined(CONFIG_SOC_SERIES_STM32G0X) || \
+		defined(CONFIG_SOC_SERIES_STM32G4X) || \
+		defined(CONFIG_SOC_SERIES_STM32H7X)
+		LL_ADC_SetCommonClock(__LL_ADC_COMMON_INSTANCE(adc),
+				      LL_ADC_CLOCK_SYNC_PCLK_DIV4);
+	#elif defined(CONFIG_SOC_SERIES_STM32L1X)
+		LL_ADC_SetCommonClock(__LL_ADC_COMMON_INSTANCE(adc),
+				      LL_ADC_CLOCK_ASYNC_DIV4);
+	#endif
 }
 
 static int adc_stm32_channel_setup(const struct device *dev,
@@ -671,21 +759,7 @@ static int adc_stm32_init(const struct device *dev)
 	k_busy_wait(LL_ADC_DELAY_INTERNAL_REGUL_STAB_US);
 #endif
 
-#if defined(CONFIG_SOC_SERIES_STM32F0X) || \
-	defined(CONFIG_SOC_SERIES_STM32L0X)
-	LL_ADC_SetClock(adc, LL_ADC_CLOCK_SYNC_PCLK_DIV4);
-#elif defined(CONFIG_SOC_SERIES_STM32F3X) || \
-	defined(CONFIG_SOC_SERIES_STM32L4X) || \
-	defined(CONFIG_SOC_SERIES_STM32WBX) || \
-	defined(CONFIG_SOC_SERIES_STM32G0X) || \
-	defined(CONFIG_SOC_SERIES_STM32G4X) || \
-	defined(CONFIG_SOC_SERIES_STM32H7X)
-	LL_ADC_SetCommonClock(__LL_ADC_COMMON_INSTANCE(adc),
-			      LL_ADC_CLOCK_SYNC_PCLK_DIV4);
-#elif defined(CONFIG_SOC_SERIES_STM32L1X)
-	LL_ADC_SetCommonClock(__LL_ADC_COMMON_INSTANCE(adc),
-			LL_ADC_CLOCK_ASYNC_DIV4);
-#endif
+	adc_stm32_setup_prescalar(config, adc);
 
 #if !defined(CONFIG_SOC_SERIES_STM32F2X) && \
 	!defined(CONFIG_SOC_SERIES_STM32F4X) && \
@@ -769,7 +843,14 @@ static int adc_stm32_init(const struct device *dev)
 	}
 #endif
 
+#if defined(CONFIG_ADC_STM32_SHARED_IRQS)
+	if (init_irq) {
+		init_irq = false;
+		adc_stm32_cfg_func_isr();
+	}
+#else
 	config->irq_cfg_func();
+#endif
 
 #ifdef CONFIG_SOC_SERIES_STM32F1X
 	/* Calibration of F1 must starts after two cycles after ADON is set. */
@@ -789,6 +870,34 @@ static const struct adc_driver_api api_stm32_driver_api = {
 #endif
 };
 
+#define STM32_ADC_INIT_SHARED(index)					\
+									\
+static const struct soc_gpio_pinctrl adc_pins_##index[] =		\
+	ST_STM32_DT_INST_PINCTRL(index, 0);				\
+									\
+static const struct adc_stm32_cfg adc_stm32_cfg_##index = {		\
+	.base = (ADC_TypeDef *)DT_INST_REG_ADDR(index),			\
+	.prescalar = DT_INST_PROP_OR(index, prescalar, 4),		\
+	.irq_cfg_func = adc_stm32_shared_irq_handler,			\
+	.pclken = {							\
+		.enr = DT_INST_CLOCKS_CELL(index, bits),		\
+		.bus = DT_INST_CLOCKS_CELL(index, bus),			\
+	},								\
+	.pinctrl = adc_pins_##index,					\
+	.pinctrl_len = ARRAY_SIZE(adc_pins_##index),			\
+};									\
+static struct adc_stm32_data adc_stm32_data_##index = {			\
+	ADC_CONTEXT_INIT_TIMER(adc_stm32_data_##index, ctx),		\
+	ADC_CONTEXT_INIT_LOCK(adc_stm32_data_##index, ctx),		\
+	ADC_CONTEXT_INIT_SYNC(adc_stm32_data_##index, ctx),		\
+};									\
+									\
+DEVICE_DT_INST_DEFINE(index,						\
+		    &adc_stm32_init, NULL,				\
+		    &adc_stm32_data_##index, &adc_stm32_cfg_##index,	\
+		    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,	\
+		    &api_stm32_driver_api);
+
 #define STM32_ADC_INIT(index)						\
 									\
 static void adc_stm32_cfg_func_##index(void);				\
@@ -799,6 +908,7 @@ static const struct soc_gpio_pinctrl adc_pins_##index[] =		\
 static const struct adc_stm32_cfg adc_stm32_cfg_##index = {		\
 	.base = (ADC_TypeDef *)DT_INST_REG_ADDR(index),			\
 	.irq_cfg_func = adc_stm32_cfg_func_##index,			\
+	.prescalar = DT_INST_PROP_OR(index, prescalar, 4),		\
 	.pclken = {							\
 		.enr = DT_INST_CLOCKS_CELL(index, bits),		\
 		.bus = DT_INST_CLOCKS_CELL(index, bus),			\
@@ -826,4 +936,8 @@ static void adc_stm32_cfg_func_##index(void)				\
 	irq_enable(DT_INST_IRQN(index));				\
 }
 
+#ifdef CONFIG_ADC_STM32_SHARED_IRQS
+DT_INST_FOREACH_STATUS_OKAY(STM32_ADC_INIT_SHARED)
+#else
 DT_INST_FOREACH_STATUS_OKAY(STM32_ADC_INIT)
+#endif
