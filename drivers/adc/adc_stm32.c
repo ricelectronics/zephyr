@@ -448,38 +448,6 @@ static void adc_stm32_isr(const struct device *dev)
 	LOG_DBG("%s ISR triggered.", dev->name);
 }
 
-#ifdef CONFIG_ADC_STM32_SHARED_IRQS
-bool adc_stm32_is_irq_active(ADC_TypeDef *adc)
-{
-	return LL_ADC_IsActiveFlag_EOCS(adc) ||
-	       LL_ADC_IsActiveFlag_OVR(adc) ||
-	       LL_ADC_IsActiveFlag_JEOS(adc) ||
-	       LL_ADC_IsActiveFlag_AWD1(adc);
-}
-
-#define HANDLE_IRQS(index)							\
-	static const struct device *dev_##index = DEVICE_DT_INST_GET(index);	\
-	const struct adc_stm32_cfg *cfg_##index = dev_##index->config;		\
-	ADC_TypeDef *adc_##index = (ADC_TypeDef *)(cfg_##index->base);		\
-										\
-	if (adc_stm32_is_irq_active(adc_##index)) {				\
-		adc_stm32_isr(dev_##index);					\
-	}
-
-static void adc_stm32_shared_irq_handler(void)
-{
-	DT_INST_FOREACH_STATUS_OKAY(HANDLE_IRQS)
-}
-
-static void adc_stm32_cfg_func_isr(void)
-{
-	IRQ_CONNECT(DT_INST_IRQN(0),
-		    DT_INST_IRQ(0, priority),
-		    adc_stm32_shared_irq_handler, NULL, 0);
-	irq_enable(DT_INST_IRQN(0));
-}
-#endif
-
 static int adc_stm32_read(const struct device *dev,
 			  const struct adc_sequence *sequence)
 {
@@ -843,14 +811,7 @@ static int adc_stm32_init(const struct device *dev)
 	}
 #endif
 
-#if defined(CONFIG_ADC_STM32_SHARED_IRQS)
-	if (init_irq) {
-		init_irq = false;
-		adc_stm32_cfg_func_isr();
-	}
-#else
 	config->irq_cfg_func();
-#endif
 
 #ifdef CONFIG_SOC_SERIES_STM32F1X
 	/* Calibration of F1 must starts after two cycles after ADON is set. */
@@ -870,22 +831,81 @@ static const struct adc_driver_api api_stm32_driver_api = {
 #endif
 };
 
-#define STM32_ADC_INIT_SHARED(index)					\
-									\
-static const struct soc_gpio_pinctrl adc_pins_##index[] =		\
-	ST_STM32_DT_INST_PINCTRL(index, 0);				\
-									\
+#ifdef CONFIG_ADC_STM32_SHARED_IRQS
+
+bool adc_stm32_is_irq_active(ADC_TypeDef *adc)
+{
+	return LL_ADC_IsActiveFlag_EOCS(adc) ||
+	       LL_ADC_IsActiveFlag_OVR(adc) ||
+	       LL_ADC_IsActiveFlag_JEOS(adc) ||
+	       LL_ADC_IsActiveFlag_AWD1(adc);
+}
+
+#define HANDLE_IRQS(index)							\
+	static const struct device *dev_##index = DEVICE_DT_INST_GET(index);	\
+	const struct adc_stm32_cfg *cfg_##index = dev_##index->config;		\
+	ADC_TypeDef *adc_##index = (ADC_TypeDef *)(cfg_##index->base);		\
+										\
+	if (adc_stm32_is_irq_active(adc_##index)) {				\
+		adc_stm32_isr(dev_##index);					\
+	}
+
+static void adc_stm32_shared_irq_handler(void)
+{
+	DT_INST_FOREACH_STATUS_OKAY(HANDLE_IRQS);
+}
+
+static void adc_stm32_cfg_func_isr(void)
+{
+	if (init_irq) {
+		init_irq = false;
+		IRQ_CONNECT(DT_INST_IRQN(0),
+			DT_INST_IRQ(0, priority),
+			adc_stm32_shared_irq_handler, NULL, 0);
+		irq_enable(DT_INST_IRQN(0));
+	}
+}
+
+#define ADC_STM32_CONFIG_ISR(index)					\
 static const struct adc_stm32_cfg adc_stm32_cfg_##index = {		\
 	.base = (ADC_TypeDef *)DT_INST_REG_ADDR(index),			\
+	.irq_cfg_func = adc_stm32_cfg_func_isr,				\
 	.prescalar = DT_INST_PROP_OR(index, prescalar, 4),		\
-	.irq_cfg_func = adc_stm32_shared_irq_handler,			\
 	.pclken = {							\
 		.enr = DT_INST_CLOCKS_CELL(index, bits),		\
 		.bus = DT_INST_CLOCKS_CELL(index, bus),			\
 	},								\
 	.pinctrl = adc_pins_##index,					\
 	.pinctrl_len = ARRAY_SIZE(adc_pins_##index),			\
-};									\
+};
+#else
+#define ADC_STM32_CONFIG_ISR(index)					\
+static void adc_stm32_cfg_func_##index(void)				\
+{									\
+	IRQ_CONNECT(DT_INST_IRQN(index),				\
+		    DT_INST_IRQ(index, priority),			\
+		    adc_stm32_isr, DEVICE_DT_INST_GET(index), 0);	\
+	irq_enable(DT_INST_IRQN(index));				\
+}									\
+									\
+static const struct adc_stm32_cfg adc_stm32_cfg_##index = {		\
+	.base = (ADC_TypeDef *)DT_INST_REG_ADDR(index),			\
+	.irq_cfg_func = adc_stm32_cfg_func_##index,			\
+	.pclken = {							\
+		.enr = DT_INST_CLOCKS_CELL(index, bits),		\
+		.bus = DT_INST_CLOCKS_CELL(index, bus),			\
+	},								\
+	.pinctrl = adc_pins_##index,					\
+	.pinctrl_len = ARRAY_SIZE(adc_pins_##index),
+#endif
+
+#define STM32_ADC_INIT(index)						\
+									\
+static const struct soc_gpio_pinctrl adc_pins_##index[] =		\
+	ST_STM32_DT_INST_PINCTRL(index, 0);				\
+									\
+	ADC_STM32_CONFIG_ISR(index)					\
+									\
 static struct adc_stm32_data adc_stm32_data_##index = {			\
 	ADC_CONTEXT_INIT_TIMER(adc_stm32_data_##index, ctx),		\
 	ADC_CONTEXT_INIT_LOCK(adc_stm32_data_##index, ctx),		\
@@ -898,46 +918,5 @@ DEVICE_DT_INST_DEFINE(index,						\
 		    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,	\
 		    &api_stm32_driver_api);
 
-#define STM32_ADC_INIT(index)						\
-									\
-static void adc_stm32_cfg_func_##index(void);				\
-									\
-static const struct soc_gpio_pinctrl adc_pins_##index[] =		\
-	ST_STM32_DT_INST_PINCTRL(index, 0);				\
-									\
-static const struct adc_stm32_cfg adc_stm32_cfg_##index = {		\
-	.base = (ADC_TypeDef *)DT_INST_REG_ADDR(index),			\
-	.irq_cfg_func = adc_stm32_cfg_func_##index,			\
-	.prescalar = DT_INST_PROP_OR(index, prescalar, 4),		\
-	.pclken = {							\
-		.enr = DT_INST_CLOCKS_CELL(index, bits),		\
-		.bus = DT_INST_CLOCKS_CELL(index, bus),			\
-	},								\
-	.pinctrl = adc_pins_##index,					\
-	.pinctrl_len = ARRAY_SIZE(adc_pins_##index),			\
-};									\
-static struct adc_stm32_data adc_stm32_data_##index = {			\
-	ADC_CONTEXT_INIT_TIMER(adc_stm32_data_##index, ctx),		\
-	ADC_CONTEXT_INIT_LOCK(adc_stm32_data_##index, ctx),		\
-	ADC_CONTEXT_INIT_SYNC(adc_stm32_data_##index, ctx),		\
-};									\
-									\
-DEVICE_DT_INST_DEFINE(index,						\
-		    &adc_stm32_init, NULL,				\
-		    &adc_stm32_data_##index, &adc_stm32_cfg_##index,	\
-		    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,	\
-		    &api_stm32_driver_api);				\
-									\
-static void adc_stm32_cfg_func_##index(void)				\
-{									\
-	IRQ_CONNECT(DT_INST_IRQN(index),				\
-		    DT_INST_IRQ(index, priority),			\
-		    adc_stm32_isr, DEVICE_DT_INST_GET(index), 0);	\
-	irq_enable(DT_INST_IRQN(index));				\
-}
-
-#ifdef CONFIG_ADC_STM32_SHARED_IRQS
-DT_INST_FOREACH_STATUS_OKAY(STM32_ADC_INIT_SHARED)
-#else
 DT_INST_FOREACH_STATUS_OKAY(STM32_ADC_INIT)
-#endif
+
