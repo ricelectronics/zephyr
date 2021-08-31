@@ -369,7 +369,8 @@
 			pwm {
 				compatible = "st,stm32-pwm";
 				status = "disabled";
-				st,prescaler = <10000>;
+				st,prescaler = <0>;
+				interrupts = <24 0>;
 				label = "PWM_9";
 				#pwm-cells = <3>;
 			};
