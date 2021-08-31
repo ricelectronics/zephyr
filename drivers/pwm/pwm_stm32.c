@@ -32,12 +32,23 @@ LOG_MODULE_REGISTER(pwm_stm32, CONFIG_PWM_LOG_LEVEL);
 struct pwm_stm32_data {
 	/** Timer clock (Hz). */
 	uint32_t tim_clk;
+	#ifdef CONFIG_PWM_CAPTURE
+	struct k_sem time_sem;
+	uint32_t timestamp;
+	uint32_t channel;
+	#endif
 };
 
 /** PWM configuration. */
 struct pwm_stm32_config {
 	/** Timer instance. */
 	TIM_TypeDef *timer;
+	#ifdef CONFIG_PWM_CAPTURE
+	/** **/
+	void (*irq_cfg_func)(void);
+	/** **/
+	bool input;
+	#endif
 	/** Prescaler. */
 	uint32_t prescaler;
 	/** Clock configuration. */
@@ -197,6 +208,220 @@ static int get_tim_clk(const struct stm32_pclken *pclken, uint32_t *tim_clk)
 	return 0;
 }
 
+#ifdef CONFIG_PWM_CAPTURE
+static void enable_cc_it(TIM_TypeDef *timer, uint32_t channel)
+{
+	switch (channel) {
+	case LL_TIM_CHANNEL_CH1:
+	{
+		LL_TIM_ClearFlag_CC1(timer);
+		LL_TIM_EnableIT_CC1(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH2:
+	{
+		LL_TIM_ClearFlag_CC2(timer);
+		LL_TIM_EnableIT_CC2(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH3:
+	{
+		LL_TIM_ClearFlag_CC3(timer);
+		LL_TIM_EnableIT_CC3(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH4:
+	{
+		LL_TIM_ClearFlag_CC4(timer);
+		LL_TIM_EnableIT_CC4(timer);
+		break;
+	}
+	#if TIMER_HAS_6CH
+	case LL_TIM_CHANNEL_CH5:
+	{
+		LL_TIM_ClearFlag_CC5(timer);
+		LL_TIM_EnableIT_CC5(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH6:
+	{
+		LL_TIM_ClearFlag_CC6(timer);
+		LL_TIM_EnableIT_CC6(timer);
+		break;
+	}
+	#endif
+	default:
+		LOG_ERR("Invalid channel '%d'", channel);
+		break;
+	}
+}
+
+static void disable_cc_it(TIM_TypeDef *timer, uint32_t channel)
+{
+	switch (channel) {
+	case LL_TIM_CHANNEL_CH1:
+	{
+		LL_TIM_DisableIT_CC1(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH2:
+	{
+		LL_TIM_DisableIT_CC2(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH3:
+	{
+		LL_TIM_DisableIT_CC3(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH4:
+	{
+		LL_TIM_DisableIT_CC4(timer);
+		break;
+	}
+	#if TIMER_HAS_6CH
+	case LL_TIM_CHANNEL_CH5:
+	{
+		LL_TIM_DisableIT_CC5(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH6:
+	{
+		LL_TIM_DisableIT_CC6(timer);
+		break;
+	}
+	#endif
+	default:
+		LOG_ERR("Invalid channel '%d'", channel);
+		break;
+	}
+}
+
+static bool check_cc_it(TIM_TypeDef *timer, uint32_t channel)
+{
+	switch (channel) {
+	case LL_TIM_CHANNEL_CH1:
+	{
+		if (LL_TIM_IsActiveFlag_CC1(timer) == 1) {
+			LL_TIM_ClearFlag_CC1(timer);
+			return true;
+		}
+		break;
+	}
+	case LL_TIM_CHANNEL_CH2:
+	{
+		if (LL_TIM_IsActiveFlag_CC2(timer) == 1) {
+			LL_TIM_ClearFlag_CC2(timer);
+			return true;
+		}
+		break;
+	}
+	case LL_TIM_CHANNEL_CH3:
+	{
+		if (LL_TIM_IsActiveFlag_CC3(timer) == 1) {
+			LL_TIM_ClearFlag_CC3(timer);
+			return true;
+		}
+		break;
+	}
+	case LL_TIM_CHANNEL_CH4:
+	{
+		if (LL_TIM_IsActiveFlag_CC4(timer) == 1) {
+			LL_TIM_ClearFlag_CC4(timer);
+			return true;
+		}
+		break;
+	}
+	#if TIMER_HAS_6CH
+	case LL_TIM_CHANNEL_CH5:
+	{
+		if (LL_TIM_IsActiveFlag_CC5(timer) == 1) {
+			LL_TIM_ClearFlag_CC5(timer);
+			return true;
+		}
+		break;
+	}
+	case LL_TIM_CHANNEL_CH6:
+	{
+		if (LL_TIM_IsActiveFlag_CC6(timer) == 1) {
+			LL_TIM_ClearFlag_CC6(timer);
+			return true;
+		}
+		break;
+	}
+	#endif
+	default:
+		LOG_ERR("Invalid channel '%d'", channel);
+		break;
+	}
+	return false;
+}
+
+static int get_capture(TIM_TypeDef *timer, uint32_t channel, uint32_t *capture)
+{
+	switch (channel) {
+	case LL_TIM_CHANNEL_CH1:
+	{
+		*capture = LL_TIM_IC_GetCaptureCH1(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH2:
+	{
+		*capture = LL_TIM_IC_GetCaptureCH2(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH3:
+	{
+		*capture = LL_TIM_IC_GetCaptureCH3(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH4:
+	{
+		*capture = LL_TIM_IC_GetCaptureCH4(timer);
+		break;
+	}
+	#if TIMER_HAS_6CH
+	case LL_TIM_CHANNEL_CH5:
+	{
+		*capture = LL_TIM_IC_GetCaptureCH5(timer);
+		break;
+	}
+	case LL_TIM_CHANNEL_CH6:
+	{
+		*capture = LL_TIM_IC_GetCaptureCH6(timer);
+		break;
+	}
+	#endif
+	default:
+		LOG_ERR("Invalid channel '%d'", channel);
+		return -ENOTSUP;
+	}
+	return 0;
+}
+
+static int get_ic_timestamp(const struct device *dev, uint32_t channel, uint32_t *timestamp)
+{
+	struct pwm_stm32_data *data = dev->data;
+	const struct pwm_stm32_config *cfg = dev->config;
+	*timestamp = 0;
+	int err = k_sem_take(&data->time_sem, K_FOREVER);
+
+	if (err) {
+		LOG_ERR("failure obtaining semaphore %d", err);
+		return err;
+	}
+
+	disable_cc_it(cfg->timer, channel);
+
+	*timestamp = data->timestamp;
+
+	enable_cc_it(cfg->timer, channel);
+	k_sem_give(&data->time_sem);
+
+	return 0;
+}
+#endif
+
 static int pwm_stm32_pin_set(const struct device *dev, uint32_t pwm,
 			     uint32_t period_cycles, uint32_t pulse_cycles,
 			     pwm_flags_t flags)
@@ -265,15 +490,152 @@ static int pwm_stm32_get_cycles_per_sec(const struct device *dev,
 {
 	struct pwm_stm32_data *data = dev->data;
 	const struct pwm_stm32_config *cfg = dev->config;
+	uint64_t clock_rate = (uint64_t)(data->tim_clk / (cfg->prescaler + 1));
 
-	*cycles = (uint64_t)(data->tim_clk / (cfg->prescaler + 1));
+	#ifdef CONFIG_PWM_CAPTURE
+	int err;
+	int32_t channel;
+	uint32_t timestamp = 0;
+	double cycle_time = (1.0 / clock_rate);
+
+	if (pwm < 1u || pwm > TIMER_MAX_CH) {
+		LOG_ERR("Invalid channel (%d)", pwm);
+		return -EINVAL;
+	}
+
+	if (cfg->input) {
+		channel = ch2ll[pwm - 1u];
+
+		if (data->channel != channel) {
+			LOG_ERR("Can only the input capture on the configured channel");
+			return -ENOTSUP;
+		}
+
+		err = get_ic_timestamp(dev, data->channel, &timestamp);
+		if (err < 0) {
+			*cycles = 0;
+			return err;
+		}
+
+		if (timestamp > 0) {
+			double total_cycle_time = cycle_time * timestamp;
+			*cycles = (float)(1.0 / total_cycle_time) + 0.5;
+		} else {
+			*cycles = 0;
+		}
+
+		return 0;
+	}
+	#endif
+
+	*cycles = clock_rate;
 
 	return 0;
 }
 
+#ifdef CONFIG_PWM_CAPTURE
+static int pwm_stm32_pin_configure_capture(const struct device *dev,
+					   uint32_t pwm,
+					   pwm_flags_t flags,
+					   pwm_capture_callback_handler_t cb,
+					   void *user_data)
+{
+	const struct pwm_stm32_config *cfg = dev->config;
+	struct pwm_stm32_data *data = dev->data;
+
+	if (pwm < 1u || pwm > TIMER_MAX_CH) {
+		LOG_ERR("Invalid channel (%d)", pwm);
+		return -EINVAL;
+	}
+
+	uint32_t ch = ch2ll[pwm - 1u];
+
+	if (data->channel != 0 && data->channel != ch) {
+		LOG_ERR("Only support for a single input capture driver is supported");
+		return -ENOTSUP;
+	}
+
+	data->channel = ch;
+
+	if (!LL_TIM_CC_IsEnabledChannel(cfg->timer, data->channel)) {
+
+		LL_TIM_IC_InitTypeDef ic_init;
+
+		LL_TIM_IC_StructInit(&ic_init);
+
+		ic_init.ICFilter = LL_TIM_IC_FILTER_FDIV1;
+		ic_init.ICActiveInput = LL_TIM_ACTIVEINPUT_DIRECTTI;
+		ic_init.ICPolarity = LL_TIM_IC_POLARITY_RISING;
+		ic_init.ICPrescaler = LL_TIM_ICPSC_DIV1;
+
+		if (LL_TIM_IC_Init(cfg->timer, data->channel, &ic_init) != SUCCESS) {
+			LOG_ERR("Could not initialize timer channel input");
+			return -EIO;
+		}
+
+		LL_TIM_EnableCounter(cfg->timer);
+
+		LL_TIM_EnableARRPreload(cfg->timer);
+
+		enable_cc_it(cfg->timer, data->channel);
+
+		LOG_DBG("Configured IC on %s channel %d", dev->name, data->channel);
+	}
+
+	return 0;
+}
+
+static int pwm_stm32_pin_enable_capture(const struct device *dev, uint32_t pwm)
+{
+	/* Only a single channel is supported, so ignore this */
+	(void)pwm;
+	const struct pwm_stm32_config *cfg = dev->config;
+	const struct pwm_stm32_data *data = dev->data;
+
+	enable_cc_it(cfg->timer, data->channel);
+
+	return 0;
+}
+
+static int pwm_stm32_pin_disable_capture(const struct device *dev, uint32_t pwm)
+{
+	/* Only a single channel is supported, so ignore this */
+	(void)pwm;
+	const struct pwm_stm32_config *cfg = dev->config;
+	const struct pwm_stm32_data *data = dev->data;
+
+	disable_cc_it(cfg->timer, data->channel);
+
+	return 0;
+}
+
+static void pwm_stm32_isr(const struct device *dev)
+{
+	const struct pwm_stm32_config *cfg = (const struct pwm_stm32_config *)dev->config;
+	struct pwm_stm32_data *data = dev->data;
+
+	if (check_cc_it(cfg->timer, data->channel)) {
+		LL_TIM_SetCounter(cfg->timer, 0);
+		if (k_sem_take(&data->time_sem, K_NO_WAIT)) {
+			LOG_DBG("failed to take sem from ISR");
+			return;
+		}
+		get_capture(cfg->timer, data->channel, &data->timestamp);
+
+		k_sem_give(&data->time_sem);
+	} else {
+		LOG_DBG("%s ISR triggered, unknown interrupt", dev->name);
+	}
+}
+#endif
 static const struct pwm_driver_api pwm_stm32_driver_api = {
 	.pin_set = pwm_stm32_pin_set,
 	.get_cycles_per_sec = pwm_stm32_get_cycles_per_sec,
+	#ifdef CONFIG_PWM_CAPTURE
+	.pin_configure_capture = pwm_stm32_pin_configure_capture,
+	.pin_enable_capture = pwm_stm32_pin_enable_capture,
+	.pin_disable_capture = pwm_stm32_pin_disable_capture,
+	#endif /* CONFIG_PWM_CAPTURE */
 };
 
 static int pwm_stm32_init(const struct device *dev)
@@ -314,7 +676,19 @@ static int pwm_stm32_init(const struct device *dev)
 
 	init.Prescaler = cfg->prescaler;
 	init.CounterMode = LL_TIM_COUNTERMODE_UP;
-	init.Autoreload = 0u;
+	#ifdef CONFIG_PWM_CAPTURE
+	if (cfg->input) {
+		if (IS_TIM_32B_COUNTER_INSTANCE(cfg->timer)) {
+			init.Autoreload = UINT32_MAX;
+		} else {
+			init.Autoreload = UINT16_MAX;
+		}
+	} else {
+		init.Autoreload = 0;
+	}
+	#else
+	init.Autoreload = 0;
+	#endif
 	init.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
 
 	if (LL_TIM_Init(cfg->timer, &init) != SUCCESS) {
@@ -328,10 +702,32 @@ static int pwm_stm32_init(const struct device *dev)
 		LL_TIM_EnableAllOutputs(cfg->timer);
 	}
 #endif
-
+	#ifdef CONFIG_PWM_CAPTURE
+	if (!cfg->input) {
+		data->channel = 0;
+		LL_TIM_EnableCounter(cfg->timer);
+	} else {
+		/* when using input capture the timer should only be enabled after
+		 * configuration by the pwm_stm32_pin_configure_capture function
+		 */
+		k_sem_init(&data->time_sem, 1, 1);
+		cfg->irq_cfg_func();
+	}
+	#else
 	LL_TIM_EnableCounter(cfg->timer);
+	#endif
 
 	return 0;
+}
+
+#define TIMER_IRQ_CONNECT(index)		\
+static void pwm_stm32_cfg_func_##index(void)	\
+{						\
+	IRQ_CONNECT(DT_INST_IRQN(index),	\
+		DT_INST_IRQ(index, priority),	\
+		pwm_stm32_isr,			\
+		DEVICE_DT_INST_GET(index), 0);	\
+	irq_enable(DT_INST_IRQN(index));	\
 }
 
 #define DT_INST_CLK(index, inst)                                               \
@@ -346,9 +742,13 @@ static int pwm_stm32_init(const struct device *dev)
 	static const struct soc_gpio_pinctrl pwm_pins_##index[] =	       \
 		ST_STM32_DT_INST_PINCTRL(index, 0);			       \
 									       \
+	TIMER_IRQ_CONNECT(index)					       \
+									       \
 	static const struct pwm_stm32_config pwm_stm32_config_##index = {      \
 		.timer = (TIM_TypeDef *)DT_REG_ADDR(                           \
 			DT_PARENT(DT_DRV_INST(index))),                        \
+		.irq_cfg_func = pwm_stm32_cfg_func_##index,		       \
+		.input = DT_INST_PROP_OR(index, input_capture, false),	       \
 		.prescaler = DT_INST_PROP(index, st_prescaler),                \
 		.pclken = DT_INST_CLK(index, timer),                           \
 		.pinctrl = pwm_pins_##index,                                   \
