@@ -19,5 +19,5 @@ config ADC_STM32_SHARED_IRQS
 	default y
 	depends on ADC_STM32
 	help
-	  Enable the use of shared interrupts for famalies that only have a single interrupt for all ADC's
+	  Enable the use of shared interrupts for families that only have a single interrupt for all ADC's
 endif

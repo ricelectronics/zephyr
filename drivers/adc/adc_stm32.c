@@ -855,7 +855,7 @@ static void adc_stm32_shared_irq_handler(void)
 	DT_INST_FOREACH_STATUS_OKAY(HANDLE_IRQS);
 }
 
-static void adc_stm32_cfg_func_isr(void)
+static void adc_stm32_irq_init(void)
 {
 	if (init_irq) {
 		init_irq = false;
@@ -866,10 +866,10 @@ static void adc_stm32_cfg_func_isr(void)
 	}
 }
 
-#define ADC_STM32_CONFIG_ISR(index)					\
+#define ADC_STM32_CONFIG(index)						\
 static const struct adc_stm32_cfg adc_stm32_cfg_##index = {		\
 	.base = (ADC_TypeDef *)DT_INST_REG_ADDR(index),			\
-	.irq_cfg_func = adc_stm32_cfg_func_isr,				\
+	.irq_cfg_func = adc_stm32_irq_init,				\
 	.prescalar = DT_INST_PROP_OR(index, prescalar, 4),		\
 	.pclken = {							\
 		.enr = DT_INST_CLOCKS_CELL(index, bits),		\
@@ -879,7 +879,7 @@ static const struct adc_stm32_cfg adc_stm32_cfg_##index = {		\
 	.pinctrl_len = ARRAY_SIZE(adc_pins_##index),			\
 };
 #else
-#define ADC_STM32_CONFIG_ISR(index)					\
+#define ADC_STM32_CONFIG(index)						\
 static void adc_stm32_cfg_func_##index(void)				\
 {									\
 	IRQ_CONNECT(DT_INST_IRQN(index),				\
@@ -896,7 +896,8 @@ static const struct adc_stm32_cfg adc_stm32_cfg_##index = {		\
 		.bus = DT_INST_CLOCKS_CELL(index, bus),			\
 	},								\
 	.pinctrl = adc_pins_##index,					\
-	.pinctrl_len = ARRAY_SIZE(adc_pins_##index),
+	.pinctrl_len = ARRAY_SIZE(adc_pins_##index),			\
+};
 #endif
 
 #define STM32_ADC_INIT(index)						\
@@ -904,7 +905,7 @@ static const struct adc_stm32_cfg adc_stm32_cfg_##index = {		\
 static const struct soc_gpio_pinctrl adc_pins_##index[] =		\
 	ST_STM32_DT_INST_PINCTRL(index, 0);				\
 									\
-	ADC_STM32_CONFIG_ISR(index)					\
+ADC_STM32_CONFIG(index)							\
 									\
 static struct adc_stm32_data adc_stm32_data_##index = {			\
 	ADC_CONTEXT_INIT_TIMER(adc_stm32_data_##index, ctx),		\
