@@ -21,6 +21,8 @@ manifest:
   remotes:
     - name: upstream
       url-base: https://github.com/zephyrproject-rtos
+    - name: ric
+      url-base: https://github.com/ricelectronics
 
   #
   # Please add items below based on alphabetical order
@@ -57,8 +59,9 @@ manifest:
       groups:
         - hal
     - name: hal_atmel
-      revision: 9f78f520f6cbb997e5b44fe8ab17dd5bf2448095
+      revision: ad7df107336e7c771cffdf7a6c8fbcf03abd33bf
       path: modules/hal/atmel
+      remote: ric
       groups:
         - hal
     - name: hal_cypress
