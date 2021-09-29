@@ -66,11 +66,11 @@ static int sam_pwm_pin_set(const struct device *dev, uint32_t ch,
 	/* Update period and pulse using the update registers, so that the
 	 * change is triggered at the next PWM period.
 	 */
-	pwm->PWM_CH_NUM[ch].PWM_CPRDUPD = period_cycles;
-	pwm->PWM_CH_NUM[ch].PWM_CDTYUPD = pulse_cycles;
+	pwm->PWM_CH_NUM[ch].PWM_CPRD = period_cycles;
+	pwm->PWM_CH_NUM[ch].PWM_CDTY = pulse_cycles;
 
 	/* Enable the output */
-	pwm->PWM_ENA = 1 << ch;
+	pwm->PWM_ENA = BIT(ch);
 
 	return 0;
 }
