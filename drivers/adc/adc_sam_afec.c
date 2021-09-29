@@ -187,9 +187,10 @@ static int start_read(const struct device *dev,
 		      const struct adc_sequence *sequence)
 {
 	struct adc_sam_data *data = DEV_DATA(dev);
+	const struct adc_sam_cfg *const cfg = DEV_CFG(dev);
 	int error = 0;
 	uint32_t channels = sequence->channels;
-
+	Afec * const afec = cfg->regs;
 	data->channels = 0U;
 
 	/* Signal an error if the channel selection is invalid (no channels or
@@ -202,8 +203,22 @@ static int start_read(const struct device *dev,
 	}
 
 	if (sequence->oversampling != 0U) {
-		LOG_ERR("Oversampling is not supported");
-		return -EINVAL;
+		switch (sequence->oversampling) {
+		case 1:
+			afec->AFEC_EMR = AFEC_EMR_RES_OSR4 | AFEC_EMR_STM;
+			break;
+		case 2:
+			afec->AFEC_EMR = AFEC_EMR_RES_OSR16 | AFEC_EMR_STM;
+			break;
+		case 3:
+			afec->AFEC_EMR = AFEC_EMR_RES_OSR64 | AFEC_EMR_STM;
+			break;
+		case 4:
+			afec->AFEC_EMR = AFEC_EMR_RES_OSR256 | AFEC_EMR_STM;
+			break;
+		default:
+			break;
+		}
 	}
 
 	if (sequence->resolution != 12U) {
