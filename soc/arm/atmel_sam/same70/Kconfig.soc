@@ -104,6 +104,11 @@ config SOC_ATMEL_SAME70_EXT_MAINCK
 	  Says n here will use the internal fast RC oscillator
 	  running at 12 MHz.
 
+config SOC_ATMEL_SAME70_EXT_MAINCK_BYPASS
+	bool "Use external clock for main clock"
+	help
+	  The main clock is provided by an external clock source
+
 config SOC_ATMEL_SAME70_MDIV
 	int "MDIV"
 	default 2
