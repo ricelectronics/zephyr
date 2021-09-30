@@ -69,7 +69,33 @@ static ALWAYS_INLINE void clock_init(void)
 	}
 #endif /* CONFIG_SOC_ATMEL_SAME70_EXT_SLCK */
 
-#ifdef CONFIG_SOC_ATMEL_SAME70_EXT_MAINCK
+#ifdef CONFIG_SOC_ATMEL_SAME70_EXT_MAINCK_BYPASS
+	/* Select the external crystal oscillator as main clock */
+	PMC->CKGR_MOR =   CKGR_MOR_KEY_PASSWD
+			| CKGR_MOR_MOSCSEL
+			| CKGR_MOR_MOSCRCEN
+			| CKGR_MOR_MOSCXTBY;
+
+	/* Wait for external oscillator to be selected */
+	while (!(PMC->PMC_SR & PMC_SR_MOSCSELS)) {
+		;
+	}
+
+	/* Wait for frequency register to be ready */
+	while (!(PMC->CKGR_MCFR & CKGR_MCFR_MAINFRDY)) {
+		;
+	}
+
+	/* Turn off RC OSC, not used any longer, to save power */
+	PMC->CKGR_MOR =   CKGR_MOR_KEY_PASSWD
+			| CKGR_MOR_MOSCSEL
+			| CKGR_MOR_MOSCXTBY;
+
+	/* Wait for RC OSC to be turned off */
+	while (PMC->PMC_SR & PMC_SR_MOSCRCS) {
+		;
+	}
+#elif CONFIG_SOC_ATMEL_SAME70_EXT_MAINCK
 	/*
 	 * Setup main external crystal oscillator if not already done
 	 * by a previous program i.e. bootloader
@@ -102,6 +128,11 @@ static ALWAYS_INLINE void clock_init(void)
 
 		/* Wait for external oscillator to be selected */
 		while (!(PMC->PMC_SR & PMC_SR_MOSCSELS)) {
+			;
+		}
+
+		/* Wait for frequency register to be ready */
+		while (!(PMC->CKGR_MCFR & CKGR_MCFR_MAINFRDY)) {
 			;
 		}
 	}
@@ -145,7 +176,30 @@ static ALWAYS_INLINE void clock_init(void)
 	while (!(PMC->PMC_SR & PMC_SR_MOSCRCS)) {
 		;
 	}
+
+	/* Initialize RC freq measurement */
+	PMC->CKGR_MCFR = CKGR_MOR_KEY_PASSWD
+			| CKGR_MCFR_RCMEAS;
+
 #endif /* CONFIG_SOC_ATMEL_SAME70_EXT_MAINCK */
+
+
+
+	/* Wait for freq measurement */
+	while (!(PMC->CKGR_MCFR & CKGR_MCFR_MAINFRDY)) {
+		;
+	}
+
+	uint32_t pulse_count = PMC->CKGR_MCFR & CKGR_MCFR_MAINF_Msk;
+
+	if (pulse_count == 0) {
+		LOG_ERR("failed starting main osc");
+	} else {
+		double freq = pulse_count / ((1.0/32768.0) * 16);
+		uint32_t clk_speed = freq  + 0.5;
+
+		LOG_WRN("main clock: %u", clk_speed);
+	}
 
 	/*
 	 * Setup PLLA
