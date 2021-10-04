@@ -127,6 +127,9 @@ struct adc_channel_cfg {
 	/** Channel type: single-ended or differential. */
 	uint8_t differential : 1;
 
+	/** Channel type: single or dual sample and hold. */
+	uint8_t dual : 1;
+
 #ifdef CONFIG_ADC_CONFIGURABLE_INPUTS
 	/**
 	 * Positive ADC input.
