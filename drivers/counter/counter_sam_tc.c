@@ -326,6 +326,9 @@ static int counter_sam_initialize(const struct device *dev)
 
 	/* Clock and Mode Selection */
 	tc_ch->TC_CMR = dev_cfg->reg_cmr;
+	/* TODO: change how this is done
+	 * tc_ch->TC_RC = 0x10000;
+	 */
 
 #ifdef TC_EMR_NODIVCLK
 	if (dev_cfg->nodivclk) {
