@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2017 comsuisse AG
+ * Copyright (c) 2021 RIC Electronics
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -31,6 +32,9 @@ struct sam_xdmac_channel_cfg {
 	void *user_data;
 	dma_callback_t callback;
 	uint32_t data_size;
+#if defined(DMA_SAM_XDMAC_DBL_BUFF)
+	struct sam_xdmac_linked_list_desc_view1 block[2];
+#endif
 };
 
 /* Device constant configuration parameters */
@@ -198,13 +202,13 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 		LOG_ERR("Invalid 'source_data_size' value");
 		return -EINVAL;
 	}
-
+#if !defined(DMA_SAM_XDMAC_DBL_BUFF)
 	if (cfg->block_count != 1U) {
 		LOG_ERR("Only single block transfer is currently supported."
 			    " Please submit a patch.");
 		return -EINVAL;
 	}
-
+#endif
 	burst_size = find_msb_set(cfg->source_burst_length) - 1;
 	LOG_DBG("burst_size=%d", burst_size);
 	data_size = find_msb_set(cfg->source_data_size) - 1;
@@ -262,6 +266,73 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 	dev_data->dma_channels[channel].user_data = cfg->user_data;
 
 	(void)memset(&transfer_cfg, 0, sizeof(transfer_cfg));
+
+#if defined(DMA_SAM_XDMAC_DBL_BUFF)
+	if (cfg->block_count == 2U) {
+
+		if (!cfg->head_block ||
+		    !cfg->head_block->dest_address ||
+		    !cfg->head_block->source_address ||
+		    !cfg->head_block->next_block ||
+		    !cfg->head_block->next_block->dest_address ||
+		    !cfg->head_block->next_block->source_address ||
+		    ) {
+			LOG_ERR("Invalid block addresses");
+			return -EINVAL;
+		}
+		/* set circular pointers */
+		dev_data->dma_channels[channel].block[0].mbr_nda =
+			(uint32_t)&dev_data->dma_channels[channel].block[1];
+		dev_data->dma_channels[channel].block[1].mbr_nda =
+			(uint32_t)&dev_data->dma_channels[channel].block[0];
+
+		/* ublen */
+		uint32_t ndc = 0;
+		uint32_t ubc = cfg->head_block->block_size >> data_size;
+		/* enable destination update */
+		if (cfg->channel_direction == MEMORY_TO_MEMORY ||
+		    cfg->channel_direction == PERIPHERAL_TO_MEMORY) {
+			ndc |= BIT(2);
+			ubc |= BIT(26);
+		}
+		/* enable source update */
+		if (cfg->channel_direction == MEMORY_TO_MEMORY ||
+		    cfg->channel_direction == MEMORY_TO_PERIPHERAL) {
+			ndc |= BIT(1);
+			ubc |= BIT(25);
+		}
+		/* enable next descriptor */
+		ndc |= BIT(0);
+		ubc |= BIT(24);
+
+		/* use descriptor view 1 */
+		ndc |= BIT(3);
+		ubc |= BIT(27);
+
+		dev_data->dma_channels[channel].block[0].mbr_ubc = ubc;
+		dev_data->dma_channels[channel].block[1].mbr_ubc = ubc;
+
+		/* Note: the buffers being pointed to must be in a no cache region, TCM or
+		 * cache coherence must be manually managed (only tested in no cache region)
+		 */
+		dev_data->dma_channels[channel].block[0].mbr_da =
+			cfg->head_block->dest_address;
+		dev_data->dma_channels[channel].block[1].mbr_da =
+			cfg->head_block->next_block->dest_address;
+
+		dev_data->dma_channels[channel].block[0].mbr_sa =
+			cfg->head_block->source_address;
+		dev_data->dma_channels[channel].block[1].mbr_sa =
+			cfg->head_block->next_block->source_address;
+
+		/* TODO: Might need to make the DMA port configurable */
+		transfer_cfg.nda = (uint32_t)&dev_data->dma_channels[channel].block[0];
+		transfer_cfg.ndc = ndc;
+	} else {
+		LOG_ERR("Only single block or 2 blocks (circular) is supported");
+		return -EINVAL;
+	}
+#endif
 	transfer_cfg.sa = cfg->head_block->source_address;
 	transfer_cfg.da = cfg->head_block->dest_address;
 	transfer_cfg.ublen = cfg->head_block->block_size >> data_size;
@@ -286,6 +357,7 @@ static int sam_xdmac_transfer_reload(const struct device *dev, uint32_t channel,
 
 int sam_xdmac_transfer_start(const struct device *dev, uint32_t channel)
 {
+	struct sam_xdmac_dev_data *const dev_data = DEV_DATA(dev);
 	Xdmac *const xdmac = DEV_CFG(dev)->regs;
 
 	if (channel >= DMA_CHANNELS_NO) {
@@ -299,6 +371,12 @@ int sam_xdmac_transfer_start(const struct device *dev, uint32_t channel)
 
 	/* Enable channel interrupt */
 	xdmac->XDMAC_GIE = XDMAC_GIE_IE0 << channel;
+
+	/* Clear the cache or there is undefiened behavior */
+	SCB_CleanInvalidateDCache_by_Addr(
+		(volatile void *)&dev_data->dma_channels[channel],
+		sizeof(struct sam_xdmac_channel_cfg));
+
 	/* Enable channel */
 	xdmac->XDMAC_GE = XDMAC_GE_EN0 << channel;
 
