@@ -55,6 +55,12 @@ properties:
         the driver to count events generated on the TIOA, TIOB signal connected
         to the external pin.
 
+    reg-rc:
+      type: int
+      required: false
+      description: |
+        Initial value for the rc register
+
     pinctrl-0:
       type: phandles
       required: false
