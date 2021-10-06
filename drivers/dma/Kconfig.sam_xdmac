@@ -9,9 +9,3 @@ config DMA_SAM_XDMAC
 	depends on SOC_FAMILY_SAM
 	help
 	  Enable Atmel SAM MCU Family Direct Memory Access (XDMAC) driver.
-
-config DMA_SAM_XDMAC_DBL_BUFF
-	bool "Continuous circular double buffer support for Atmel SAM DMA (XDMAC) driver"
-	depends on SOC_FAMILY_SAM
-	help
-	  Enable double buffer support for Atmel SAM MCU Family Direct Memory Access (XDMAC) driver.
