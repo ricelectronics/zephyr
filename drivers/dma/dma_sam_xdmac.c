@@ -32,9 +32,7 @@ struct sam_xdmac_channel_cfg {
 	void *user_data;
 	dma_callback_t callback;
 	uint32_t data_size;
-#if defined(DMA_SAM_XDMAC_DBL_BUFF)
 	struct sam_xdmac_linked_list_desc_view1 block[2];
-#endif
 };
 
 /* Device constant configuration parameters */
@@ -202,13 +200,7 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 		LOG_ERR("Invalid 'source_data_size' value");
 		return -EINVAL;
 	}
-#if !defined(DMA_SAM_XDMAC_DBL_BUFF)
-	if (cfg->block_count != 1U) {
-		LOG_ERR("Only single block transfer is currently supported."
-			    " Please submit a patch.");
-		return -EINVAL;
-	}
-#endif
+
 	burst_size = find_msb_set(cfg->source_burst_length) - 1;
 	LOG_DBG("burst_size=%d", burst_size);
 	data_size = find_msb_set(cfg->source_data_size) - 1;
@@ -267,7 +259,7 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 
 	(void)memset(&transfer_cfg, 0, sizeof(transfer_cfg));
 
-#if defined(DMA_SAM_XDMAC_DBL_BUFF)
+
 	if (cfg->block_count == 2U) {
 
 		if (!cfg->head_block ||
@@ -275,7 +267,7 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 		    !cfg->head_block->source_address ||
 		    !cfg->head_block->next_block ||
 		    !cfg->head_block->next_block->dest_address ||
-		    !cfg->head_block->next_block->source_address ||
+		    !cfg->head_block->next_block->source_address
 		    ) {
 			LOG_ERR("Invalid block addresses");
 			return -EINVAL;
@@ -332,7 +324,7 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 		LOG_ERR("Only single block or 2 blocks (circular) is supported");
 		return -EINVAL;
 	}
-#endif
+
 	transfer_cfg.sa = cfg->head_block->source_address;
 	transfer_cfg.da = cfg->head_block->dest_address;
 	transfer_cfg.ublen = cfg->head_block->block_size >> data_size;
