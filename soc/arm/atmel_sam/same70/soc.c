@@ -14,6 +14,7 @@
 #include <device.h>
 #include <init.h>
 #include <soc.h>
+#include "../common/soc_gpnvm.h"
 #include <arch/arm/aarch32/cortex_m/cmsis.h>
 #include <logging/log.h>
 
@@ -32,9 +33,9 @@ LOG_MODULE_REGISTER(soc);
  * With Processor Clock prescaler at 1
  * Processor Clock (HCLK)=300 MHz.
  */
-#define PMC_CKGR_PLLAR_MULA	\
+#define PMC_CKGR_PLLAR_MULA \
 	(CKGR_PLLAR_MULA(CONFIG_SOC_ATMEL_SAME70_PLLA_MULA))
-#define PMC_CKGR_PLLAR_DIVA	\
+#define PMC_CKGR_PLLAR_DIVA \
 	(CKGR_PLLAR_DIVA(CONFIG_SOC_ATMEL_SAME70_PLLA_DIVA))
 
 #if CONFIG_SOC_ATMEL_SAME70_MDIV == 1
@@ -179,7 +180,7 @@ static ALWAYS_INLINE void clock_init(void)
 
 	/* Initialize RC freq measurement */
 	PMC->CKGR_MCFR = CKGR_MOR_KEY_PASSWD
-			| CKGR_MCFR_RCMEAS;
+			 | CKGR_MCFR_RCMEAS;
 
 #endif /* CONFIG_SOC_ATMEL_SAME70_EXT_MAINCK */
 
@@ -195,7 +196,7 @@ static ALWAYS_INLINE void clock_init(void)
 	if (pulse_count == 0) {
 		LOG_ERR("failed starting main osc");
 	} else {
-		double freq = pulse_count / ((1.0/32768.0) * 16);
+		double freq = pulse_count / ((1.0 / 32768.0) * 16);
 		uint32_t clk_speed = freq  + 0.5;
 
 		LOG_WRN("main clock: %u", clk_speed);
@@ -298,6 +299,55 @@ static int atmel_same70_init(const struct device *arg)
 	 * rather than maximum supported 150 MHz at standard VDDIO=2.7V
 	 */
 	EFC->EEFC_FMR = EEFC_FMR_FWS(5) | EEFC_FMR_CLOE;
+
+	/*
+	 * Enable dtcm if selected
+	 */
+#if DT_NODE_HAS_STATUS(DT_CHOSEN(zephyr_dtcm), okay)
+	#define TCM_SIZE DT_REG_SIZE(DT_CHOSEN(zephyr_dtcm))
+
+	#if (TCM_SIZE != 32768) && \
+	(TCM_SIZE != 65536) &&	   \
+	(TCM_SIZE != 131072)
+		#error "Invalid DTCM size. Must be 32K, 64K or 128K"
+	#endif
+
+	uint32_t set_bits = 0;
+
+	if (TCM_SIZE == 32768) {
+		set_bits |= BIT(7);
+	} else if (TCM_SIZE == 65536) {
+		set_bits = BIT(8);
+	} else if (TCM_SIZE == 131072) {
+		set_bits = (BIT(7) | BIT(8));
+	}
+	uint32_t gpnvm_bits = soc_gpnvm_read_bits();
+
+	if ((gpnvm_bits & set_bits) != set_bits) {
+		LOG_WRN("PROGRAMMING NON VOLATILE BITS...");
+
+		soc_gpnvm_erase_bit(7);
+		soc_gpnvm_erase_bit(8);
+
+		if (TCM_SIZE == 32768) {
+			soc_gpnvm_set_bit(7);
+		} else if (TCM_SIZE == 65536) {
+			soc_gpnvm_set_bit(8);
+		} else if (TCM_SIZE == 131072) {
+			soc_gpnvm_set_bit(7);
+			soc_gpnvm_set_bit(8);
+		}
+
+		gpnvm_bits = soc_gpnvm_read_bits();
+		if ((gpnvm_bits & set_bits) != set_bits) {
+			LOG_ERR("Failed to program NV bits!");
+		}
+
+		LOG_WRN("PLEASE REBOOT DEVICE");
+		while (true) {
+		}
+	}
+#endif
 
 	/* Setup system clocks */
 	clock_init();
