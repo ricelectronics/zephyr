@@ -240,7 +240,12 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 	channel_cfg.cfg |=
 		  XDMAC_CC_DWIDTH(data_size)
 		| XDMAC_CC_SIF_AHB_IF1
+#if DT_NODE_HAS_STATUS(DT_CHOSEN(zephyr_dtcm), okay)
+		/* Can only write to dtcm through port 0 */
+		| XDMAC_CC_DIF_AHB_IF0
+#else
 		| XDMAC_CC_DIF_AHB_IF1
+#endif
 		| XDMAC_CC_PERID(cfg->dma_slot);
 	channel_cfg.ds_msp = 0U;
 	channel_cfg.sus = 0U;
