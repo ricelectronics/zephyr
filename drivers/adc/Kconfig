@@ -28,6 +28,13 @@ config ADC_SHELL
 config ADC_CONFIGURABLE_INPUTS
 	bool
 
+config ADC_USE_ARM_FIR
+	bool "Enable FIR configuration options"
+	depends on (CMSIS_DSP && CMSIS_DSP_FILTERING)
+	default n
+	help
+	  Allows user configuration options for FIR operations on sampled data.
+
 config ADC_ASYNC
 	bool "Enable asynchronous call support"
 	select POLL
