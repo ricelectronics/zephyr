@@ -16,6 +16,10 @@
 #include <device.h>
 #include <dt-bindings/adc/adc.h>
 
+#ifdef CONFIG_ADC_USE_ARM_FIR
+#include <arm_math.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -78,6 +82,10 @@ enum adc_reference {
 	ADC_REF_EXTERNAL0, /**< External, input 0. */
 	ADC_REF_EXTERNAL1, /**< External, input 1. */
 };
+
+#ifdef CONFIG_ADC_USE_ARM_FIR
+typedef void (*adc_fir_callback)(q15_t *in, q15_t *out, uint16_t sampling_index);
+#endif
 
 /**
  * @brief Structure for specifying the configuration of an ADC channel.
@@ -325,6 +333,10 @@ struct adc_sequence {
 	 * ignore this flag.
 	 */
 	bool calibrate;
+
+#ifdef CONFIG_ADC_USE_ARM_FIR
+	adc_fir_callback fir_callback;
+#endif
 };
 
 
