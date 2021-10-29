@@ -11,6 +11,22 @@ properties:
     interrupts:
       required: true
 
+    tx-dma-slot:
+      type: int
+      required: false
+
+    rx-dma-slot:
+      type: int
+      required: false
+
+    tx-dma-ch:
+      type: int
+      required: false
+
+    rx-dma-ch:
+      type: int
+      required: false
+
     peripheral-id:
       type: int
       description: peripheral ID
