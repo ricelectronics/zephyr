@@ -27,6 +27,14 @@ properties:
       type: int
       required: false
 
+    backend:
+      type: string
+      required: false
+      enum:
+        - "poll"
+        - "interrupt"
+        - "dma"
+
     peripheral-id:
       type: int
       description: peripheral ID

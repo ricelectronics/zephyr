@@ -29,12 +29,20 @@
 #include <logging/log.h>
 LOG_MODULE_REGISTER(usart_sam);
 
+enum usart_sam_dev_backend {
+	USART_SAM_BACKEND_POLL = 0,
+	USART_SAM_BACKEND_INT,
+	USART_SAM_BACKEND_DMA
+};
+
 /* Device constant configuration parameters */
 struct usart_sam_dev_cfg {
 	Usart *regs;
 	uint32_t periph_id;
 	struct soc_gpio_pin pin_rx;
 	struct soc_gpio_pin pin_tx;
+	enum usart_sam_dev_backend backend;
+
 
 #if CONFIG_UART_INTERRUPT_DRIVEN || CONFIG_UART_ASYNC_API
 	uart_irq_config_func_t	irq_config_func;
@@ -221,7 +229,7 @@ static void uart_sam_notify_rx_processed(const struct device *dev)
 		},
 	};
 
-	LOG_DBG("rx proccessed count total: %d", dev_data->rx_processed_len);
+	//LOG_DBG("rx proccessed count total: %d", dev_data->rx_processed_len);
 
 	if (dev_data->rx_next_len) {
 		// On suspending we want to switch to the next buffer if there is one available
@@ -339,70 +347,73 @@ static int usart_sam_init(const struct device *dev)
 	usart->US_CR = US_CR_RXEN | US_CR_TXEN;
 
 #if CONFIG_UART_INTERRUPT_DRIVEN || CONFIG_UART_ASYNC_API
-	cfg->irq_config_func(dev);
+	if (cfg->backend == USART_SAM_BACKEND_INT ||
+	    cfg->backend == USART_SAM_BACKEND_DMA) {
+		    cfg->irq_config_func(dev);
+	}
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
-
 #ifdef CONFIG_UART_ASYNC_API
-	dev_data->dev = dev;
-	dev_data->cfg = cfg;
-	while (!device_is_ready(cfg->dma_dev)) {
-		k_sleep(K_MSEC(1));
-	}
+	if (cfg->backend == USART_SAM_BACKEND_DMA) {
+		dev_data->dev = dev;
+		dev_data->cfg = cfg;
+		while (!device_is_ready(cfg->dma_dev)) {
+			k_sleep(K_MSEC(1));
+		}
 
-	k_work_init_delayable(&dev_data->tx_timeout_work, uart_sam_tx_timeout);
+		k_work_init_delayable(&dev_data->tx_timeout_work, uart_sam_tx_timeout);
 
-	if (cfg->tx_dma_channel != 0xFFU) {
+		if (cfg->tx_dma_channel != 0xFFU) {
 
-		dev_data->dma_blk_tx.block_size = 1;
-		dev_data->dma_blk_tx.dest_address = (uint32_t)(&(usart->US_THR));
-		dev_data->dma_blk_tx.dest_addr_adj = DMA_ADDR_ADJ_NO_CHANGE;
-		dev_data->dma_blk_tx.source_addr_adj = DMA_ADDR_ADJ_INCREMENT;
+			dev_data->dma_blk_tx.block_size = 1;
+			dev_data->dma_blk_tx.dest_address = (uint32_t)(&(usart->US_THR));
+			dev_data->dma_blk_tx.dest_addr_adj = DMA_ADDR_ADJ_NO_CHANGE;
+			dev_data->dma_blk_tx.source_addr_adj = DMA_ADDR_ADJ_INCREMENT;
 
-		dev_data->dma_cfg_tx.channel_direction = MEMORY_TO_PERIPHERAL;
-		dev_data->dma_cfg_tx.complete_callback_en = 0;
-		dev_data->dma_cfg_tx.source_burst_length = 1;
-		dev_data->dma_cfg_tx.dest_burst_length = 1;
-		dev_data->dma_cfg_tx.source_data_size = 1;
-		dev_data->dma_cfg_tx.dest_data_size = 1;
-		dev_data->dma_cfg_tx.user_data = dev_data;
-		dev_data->dma_cfg_tx.dma_callback = uart_sam_dma_tx_done;
-		dev_data->dma_cfg_tx.block_count = 1;
-		dev_data->dma_cfg_tx.head_block = &dev_data->dma_blk_tx;
-		dev_data->dma_cfg_tx.dma_slot = cfg->tx_dma_slot;
+			dev_data->dma_cfg_tx.channel_direction = MEMORY_TO_PERIPHERAL;
+			dev_data->dma_cfg_tx.complete_callback_en = 0;
+			dev_data->dma_cfg_tx.source_burst_length = 1;
+			dev_data->dma_cfg_tx.dest_burst_length = 1;
+			dev_data->dma_cfg_tx.source_data_size = 1;
+			dev_data->dma_cfg_tx.dest_data_size = 1;
+			dev_data->dma_cfg_tx.user_data = dev_data;
+			dev_data->dma_cfg_tx.dma_callback = uart_sam_dma_tx_done;
+			dev_data->dma_cfg_tx.block_count = 1;
+			dev_data->dma_cfg_tx.head_block = &dev_data->dma_blk_tx;
+			dev_data->dma_cfg_tx.dma_slot = cfg->tx_dma_slot;
 
-		retval = dma_config(cfg->dma_dev, cfg->tx_dma_channel,
-				    &dev_data->dma_cfg_tx);
-		if (retval != 0) {
-			return retval;
+			retval = dma_config(cfg->dma_dev, cfg->tx_dma_channel,
+					&dev_data->dma_cfg_tx);
+			if (retval != 0) {
+				return retval;
+			}
+		}
+
+		if (cfg->rx_dma_channel != 0xFFU) {
+			dev_data->dma_blk_rx.block_size = 1;
+			dev_data->dma_blk_rx.source_address = (uint32_t)(&(usart->US_RHR));
+			dev_data->dma_blk_rx.source_addr_adj = DMA_ADDR_ADJ_NO_CHANGE;
+			dev_data->dma_blk_rx.dest_addr_adj = DMA_ADDR_ADJ_INCREMENT;
+
+			dev_data->dma_cfg_rx.channel_direction = PERIPHERAL_TO_MEMORY;
+			dev_data->dma_cfg_rx.complete_callback_en = 0;
+			dev_data->dma_cfg_rx.source_burst_length = 1;
+			dev_data->dma_cfg_rx.dest_burst_length = 1;
+			dev_data->dma_cfg_rx.source_data_size = 1;
+			dev_data->dma_cfg_rx.dest_data_size = 1;
+			dev_data->dma_cfg_rx.user_data = dev_data;
+			dev_data->dma_cfg_rx.dma_callback = uart_sam_dma_rx_done;
+			dev_data->dma_cfg_rx.block_count = 1;
+			dev_data->dma_cfg_rx.head_block = &dev_data->dma_blk_rx;
+			dev_data->dma_cfg_rx.dma_slot = cfg->rx_dma_slot;
+
+			retval = dma_config(cfg->dma_dev, cfg->rx_dma_channel,
+					&dev_data->dma_cfg_rx);
+			if (retval != 0) {
+				return retval;
+			}
 		}
 	}
-
-	if (cfg->rx_dma_channel != 0xFFU) {
-		dev_data->dma_blk_rx.block_size = 1;
-		dev_data->dma_blk_rx.source_address = (uint32_t)(&(usart->US_RHR));
-		dev_data->dma_blk_rx.source_addr_adj = DMA_ADDR_ADJ_NO_CHANGE;
-		dev_data->dma_blk_rx.dest_addr_adj = DMA_ADDR_ADJ_INCREMENT;
-
-		dev_data->dma_cfg_rx.channel_direction = PERIPHERAL_TO_MEMORY;
-		dev_data->dma_cfg_rx.complete_callback_en = 0;
-		dev_data->dma_cfg_rx.source_burst_length = 1;
-		dev_data->dma_cfg_rx.dest_burst_length = 1;
-		dev_data->dma_cfg_rx.source_data_size = 1;
-		dev_data->dma_cfg_rx.dest_data_size = 1;
-		dev_data->dma_cfg_rx.user_data = dev_data;
-		dev_data->dma_cfg_rx.dma_callback = uart_sam_dma_rx_done;
-		dev_data->dma_cfg_rx.block_count = 1;
-		dev_data->dma_cfg_rx.head_block = &dev_data->dma_blk_rx;
-		dev_data->dma_cfg_rx.dma_slot = cfg->rx_dma_slot;
-
-		retval = dma_config(cfg->dma_dev, cfg->rx_dma_channel,
-				    &dev_data->dma_cfg_rx);
-		if (retval != 0) {
-			return retval;
-		}
-	}
-
 #endif
 	return 0;
 }
@@ -640,7 +651,7 @@ static int _rx_dma_resume(const struct device *dev)
 	dev_data->rx_dma_active = true;
 
 	irq_unlock(key);
-	LOG_DBG("rx dma resume");
+	//LOG_DBG("rx dma resume");
 	return 0;
 
 err:
@@ -848,7 +859,7 @@ static int _rx_dma_suspend(const struct device *dev)
 	}
 
 	irq_unlock(key);
-	LOG_DBG("rx dma suspend");
+	//LOG_DBG("rx dma suspend");
 	return 0;
 }
 
@@ -867,6 +878,7 @@ static void usart_sam_isr(const struct device *dev)
 #if CONFIG_UART_INTERRUPT_DRIVEN
 	if (dev_data->irq_cb) {
 		dev_data->irq_cb(dev, dev_data->cb_data);
+		return;
 	}
 #endif
 #if CONFIG_UART_ASYNC_API
@@ -913,6 +925,7 @@ static void usart_sam_isr(const struct device *dev)
 		irq_unlock(key);
 		return;
 	}
+
 	LOG_DBG("unknown ISR: %x:", usart->US_CSR);
 	#endif
 }
@@ -959,7 +972,6 @@ static const struct uart_driver_api usart_sam_driver_api = {
 #define UART_SAM_DMA_CHANNELS(n)
 #endif
 
-
 #if CONFIG_UART_INTERRUPT_DRIVEN || CONFIG_UART_ASYNC_API
 #define USART_SAM_IRQ_CFG_FUNC(n)					\
 static void usart##n##_sam_irq_config_func(const struct device *port)	\
@@ -984,6 +996,7 @@ static void usart##n##_sam_irq_config_func(const struct device *port)	\
 		.periph_id = DT_INST_PROP(n, peripheral_id),		\
 		.pin_rx = ATMEL_SAM_DT_INST_PIN(n, 0),			\
 		.pin_tx = ATMEL_SAM_DT_INST_PIN(n, 1),			\
+		.backend = DT_ENUM_IDX_OR(DT_DRV_INST(n), backend, 0),	\
 		UART_SAM_DMA_CHANNELS(n)				\
 		USART_SAM_IRQ_CFG_FUNC_INIT(n)				\
 	};
