@@ -105,8 +105,7 @@ static int adc_sam_channel_setup(const struct device *dev,
 	}
 
 	if (channel_cfg->differential) {
-		LOG_ERR("Differential input is not supported");
-		return -EINVAL;
+		afec->AFEC_DIFFR |= BIT(channel_id);
 	}
 
 	/* Set single ended channels to unsigned and differential channels
@@ -115,6 +114,15 @@ static int adc_sam_channel_setup(const struct device *dev,
 	afec->AFEC_EMR &= ~(AFEC_EMR_SIGNMODE(
 			  AFEC_EMR_SIGNMODE_SE_UNSG_DF_SIGN_Val));
 
+#ifdef CONFIG_ADC_SAM_AFEC_HW_TRIGGER
+	/* Enable the ADC channel. This also enables/selects the channel pin as
+	 * an input to the AFEC (50.5.1 SAM E70 datasheet).
+	 */
+	afec->AFEC_CHER = (1 << channel_id);
+
+	/* Enable the interrupt for the channel. */
+	afec->AFEC_IER = (1 << channel_id);
+#endif
 	return 0;
 }
 
@@ -187,9 +195,10 @@ static int start_read(const struct device *dev,
 		      const struct adc_sequence *sequence)
 {
 	struct adc_sam_data *data = DEV_DATA(dev);
+	const struct adc_sam_cfg *const cfg = DEV_CFG(dev);
 	int error = 0;
 	uint32_t channels = sequence->channels;
-
+	Afec * const afec = cfg->regs;
 	data->channels = 0U;
 
 	/* Signal an error if the channel selection is invalid (no channels or
@@ -202,8 +211,22 @@ static int start_read(const struct device *dev,
 	}
 
 	if (sequence->oversampling != 0U) {
-		LOG_ERR("Oversampling is not supported");
-		return -EINVAL;
+		switch (sequence->oversampling) {
+		case 1:
+			afec->AFEC_EMR = AFEC_EMR_RES_OSR4 | AFEC_EMR_STM;
+			break;
+		case 2:
+			afec->AFEC_EMR = AFEC_EMR_RES_OSR16 | AFEC_EMR_STM;
+			break;
+		case 3:
+			afec->AFEC_EMR = AFEC_EMR_RES_OSR64 | AFEC_EMR_STM;
+			break;
+		case 4:
+			afec->AFEC_EMR = AFEC_EMR_RES_OSR256 | AFEC_EMR_STM;
+			break;
+		default:
+			break;
+		}
 	}
 
 	if (sequence->resolution != 12U) {
@@ -270,13 +293,19 @@ static int adc_sam_init(const struct device *dev)
 	/* Reset the AFEC. */
 	afec->AFEC_CR = AFEC_CR_SWRST;
 
-	afec->AFEC_MR = AFEC_MR_TRGEN_DIS
-		      | AFEC_MR_SLEEP_NORMAL
+	afec->AFEC_MR = AFEC_MR_SLEEP_NORMAL
 		      | AFEC_MR_FWUP_OFF
 		      | AFEC_MR_FREERUN_OFF
 		      | AFEC_MR_PRESCAL(CONF_ADC_PRESCALER)
 		      | AFEC_MR_STARTUP_SUT96
+		      | AFEC_MR_TRANSFER(2)
 		      | AFEC_MR_ONE
+#ifdef CONFIG_ADC_SAM_AFEC_HW_TRIGGER
+		      | AFEC_MR_TRGSEL_AFEC_TRIG1
+		      | AFEC_MR_TRGEN_EN
+#else
+		      | AFEC_MR_TRGEN_DIS
+#endif
 		      | AFEC_MR_USEQ_NUM_ORDER;
 
 	/* Set all channels CM voltage to Vrefp/2 (512). */
@@ -332,9 +361,10 @@ static void adc_sam_isr(const struct device *dev)
 	Afec *const afec = cfg->regs;
 	uint16_t result;
 
+#ifndef CONFIG_ADC_SAM_AFEC_HW_TRIGGER
 	afec->AFEC_CHDR |= BIT(data->channel_id);
 	afec->AFEC_IDR |= BIT(data->channel_id);
-
+#endif
 	afec->AFEC_CSELR = AFEC_CSELR_CSEL(data->channel_id);
 	result = (uint16_t)(afec->AFEC_CDR);
 

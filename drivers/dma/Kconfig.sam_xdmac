@@ -1,6 +1,7 @@
 # Atmel XDMAC SAM driver configuration options
 
 # Copyright (c) 2017 Piotr Mienkowski
+# Copyright (c) 2021 RIC Electronics
 # SPDX-License-Identifier: Apache-2.0
 
 config DMA_SAM_XDMAC

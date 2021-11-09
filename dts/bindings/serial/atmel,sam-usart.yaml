@@ -11,6 +11,30 @@ properties:
     interrupts:
       required: true
 
+    tx-dma-slot:
+      type: int
+      required: false
+
+    rx-dma-slot:
+      type: int
+      required: false
+
+    tx-dma-ch:
+      type: int
+      required: false
+
+    rx-dma-ch:
+      type: int
+      required: false
+
+    backend:
+      type: string
+      required: false
+      enum:
+        - "poll"
+        - "interrupt"
+        - "dma"
+
     peripheral-id:
       type: int
       description: peripheral ID

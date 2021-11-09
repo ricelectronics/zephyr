@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2017 comsuisse AG
+ * Copyright (c) 2021 RIC Electronics
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -31,6 +32,11 @@ struct sam_xdmac_channel_cfg {
 	void *user_data;
 	dma_callback_t callback;
 	uint32_t data_size;
+	uint32_t block_size;
+	uint32_t start_addr_dest;
+	uint32_t start_addr_source;
+	struct sam_xdmac_linked_list_desc_view1 block[2];
+	uint32_t channel_direction;
 };
 
 /* Device constant configuration parameters */
@@ -199,12 +205,6 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 		return -EINVAL;
 	}
 
-	if (cfg->block_count != 1U) {
-		LOG_ERR("Only single block transfer is currently supported."
-			    " Please submit a patch.");
-		return -EINVAL;
-	}
-
 	burst_size = find_msb_set(cfg->source_burst_length) - 1;
 	LOG_DBG("burst_size=%d", burst_size);
 	data_size = find_msb_set(cfg->source_data_size) - 1;
@@ -243,8 +243,15 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 
 	channel_cfg.cfg |=
 		  XDMAC_CC_DWIDTH(data_size)
+		  // TODO: Probably want to make this configurable, will be important if
+		  // a lot of DMA channels are used to prevent saturation of the port
 		| XDMAC_CC_SIF_AHB_IF1
+#if DT_NODE_HAS_STATUS(DT_CHOSEN(zephyr_dtcm), okay)
+		/* Can only write to dtcm through port 0 */
+		| XDMAC_CC_DIF_AHB_IF0
+#else
 		| XDMAC_CC_DIF_AHB_IF1
+#endif
 		| XDMAC_CC_PERID(cfg->dma_slot);
 	channel_cfg.ds_msp = 0U;
 	channel_cfg.sus = 0U;
@@ -260,8 +267,79 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 
 	dev_data->dma_channels[channel].callback = cfg->dma_callback;
 	dev_data->dma_channels[channel].user_data = cfg->user_data;
+	dev_data->dma_channels[channel].block_size = cfg->head_block->block_size;
+	dev_data->dma_channels[channel].start_addr_dest = cfg->head_block->dest_address;
+	dev_data->dma_channels[channel].start_addr_source = cfg->head_block->source_address;
+	dev_data->dma_channels[channel].channel_direction = cfg->channel_direction;
 
 	(void)memset(&transfer_cfg, 0, sizeof(transfer_cfg));
+
+
+	if (cfg->block_count == 2U) {
+
+		if (!cfg->head_block ||
+		    !cfg->head_block->dest_address ||
+		    !cfg->head_block->source_address ||
+		    !cfg->head_block->next_block ||
+		    !cfg->head_block->next_block->dest_address ||
+		    !cfg->head_block->next_block->source_address
+		    ) {
+			LOG_ERR("Invalid block addresses");
+			return -EINVAL;
+		}
+		/* set circular pointers */
+		dev_data->dma_channels[channel].block[0].mbr_nda =
+			(uint32_t)&dev_data->dma_channels[channel].block[1];
+		dev_data->dma_channels[channel].block[1].mbr_nda =
+			(uint32_t)&dev_data->dma_channels[channel].block[0];
+
+		/* ublen */
+		uint32_t ndc = 0;
+		uint32_t ubc = cfg->head_block->block_size >> data_size;
+		/* enable destination update */
+		if (cfg->channel_direction == MEMORY_TO_MEMORY ||
+		    cfg->channel_direction == PERIPHERAL_TO_MEMORY) {
+			ndc |= BIT(2);
+			ubc |= BIT(26);
+		}
+		/* enable source update */
+		if (cfg->channel_direction == MEMORY_TO_MEMORY ||
+		    cfg->channel_direction == MEMORY_TO_PERIPHERAL) {
+			ndc |= BIT(1);
+			ubc |= BIT(25);
+		}
+		/* enable next descriptor */
+		ndc |= BIT(0);
+		ubc |= BIT(24);
+
+		/* use descriptor view 1 */
+		ndc |= BIT(3);
+		ubc |= BIT(27);
+
+		dev_data->dma_channels[channel].block[0].mbr_ubc = ubc;
+		dev_data->dma_channels[channel].block[1].mbr_ubc = ubc;
+
+		/* Note: the buffers being pointed to must be in a no cache region, TCM or
+		 * cache coherence must be manually managed (only tested in no cache region)
+		 */
+		dev_data->dma_channels[channel].block[0].mbr_da =
+			cfg->head_block->dest_address;
+		dev_data->dma_channels[channel].block[1].mbr_da =
+			cfg->head_block->next_block->dest_address;
+
+		dev_data->dma_channels[channel].block[0].mbr_sa =
+			cfg->head_block->source_address;
+		dev_data->dma_channels[channel].block[1].mbr_sa =
+			cfg->head_block->next_block->source_address;
+
+		/* TODO: Might need to make the DMA port configurable */
+		transfer_cfg.nda = (uint32_t)&dev_data->dma_channels[channel].block[0];
+		transfer_cfg.ndc = ndc;
+	} else if (cfg->block_count != 1) {
+		LOG_ERR("Only single block or 2 blocks (circular) is supported");
+		return -EINVAL;
+	}
+
 	transfer_cfg.sa = cfg->head_block->source_address;
 	transfer_cfg.da = cfg->head_block->dest_address;
 	transfer_cfg.ublen = cfg->head_block->block_size >> data_size;
@@ -274,6 +352,9 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 static int sam_xdmac_transfer_reload(const struct device *dev, uint32_t channel,
 				     uint32_t src, uint32_t dst, size_t size)
 {
+	// This is needed to insure proper opperation
+	SCB_CleanInvalidateDCache_by_Addr((void *)src, size);
+
 	struct sam_xdmac_dev_data *const dev_data = DEV_DATA(dev);
 	struct sam_xdmac_transfer_config transfer_cfg = {
 		.sa = src,
@@ -281,11 +362,16 @@ static int sam_xdmac_transfer_reload(const struct device *dev, uint32_t channel,
 		.ublen = size >> dev_data->dma_channels[channel].data_size,
 	};
 
+	dev_data->dma_channels[channel].block_size = size;
+	dev_data->dma_channels[channel].start_addr_dest = dst;
+	dev_data->dma_channels[channel].start_addr_source = src;
+
 	return sam_xdmac_transfer_configure(dev, channel, &transfer_cfg);
 }
 
 int sam_xdmac_transfer_start(const struct device *dev, uint32_t channel)
 {
+	struct sam_xdmac_dev_data *const dev_data = DEV_DATA(dev);
 	Xdmac *const xdmac = DEV_CFG(dev)->regs;
 
 	if (channel >= DMA_CHANNELS_NO) {
@@ -299,6 +385,20 @@ int sam_xdmac_transfer_start(const struct device *dev, uint32_t channel)
 
 	/* Enable channel interrupt */
 	xdmac->XDMAC_GIE = XDMAC_GIE_IE0 << channel;
+
+	/* Clear the cache or there is undefiened behavior */
+	switch (dev_data->dma_channels[channel].channel_direction) {
+		case MEMORY_TO_MEMORY:
+		case PERIPHERAL_TO_MEMORY:
+			SCB_CleanInvalidateDCache_by_Addr(
+				(volatile void *)dev_data->dma_channels[channel].start_addr_dest,
+				dev_data->dma_channels[channel].block_size);
+			break;
+		default:
+			//nothing to do for other cases
+			break;
+	}
+
 	/* Enable channel */
 	xdmac->XDMAC_GE = XDMAC_GE_EN0 << channel;
 
@@ -326,6 +426,36 @@ int sam_xdmac_transfer_stop(const struct device *dev, uint32_t channel)
 	xdmac->XDMAC_CHID[channel].XDMAC_CID = 0xFF;
 	/* Clear the pending Interrupt Status bit(s) */
 	(void)xdmac->XDMAC_CHID[channel].XDMAC_CIS;
+
+	return 0;
+}
+
+static int sam_xdmac_transfer_get_status(const struct device *dev, uint32_t channel,
+				  struct dma_status *status)
+{
+	struct sam_xdmac_dev_data *const dev_data = DEV_DATA(dev);
+	Xdmac *const xdmac = DEV_CFG(dev)->regs;
+
+	if (channel >= DMA_CHANNELS_NO) {
+		return -EINVAL;
+	}
+
+	//TODO: make this mirror if the dma request is started or stopped
+	status->busy = false;
+
+	// Required for proper opperation with cache enabled
+	SCB_CleanInvalidateDCache_by_Addr(&dev_data->dma_channels[channel], sizeof(struct sam_xdmac_channel_cfg));
+
+	status->dir = dev_data->dma_channels[channel].channel_direction;
+
+	if (status->dir == PERIPHERAL_TO_MEMORY || status->dir == MEMORY_TO_MEMORY) {
+		// Buff size - bytes already transferred
+		status->pending_length = dev_data->dma_channels[channel].block_size -
+			(xdmac->XDMAC_CHID[channel].XDMAC_CDA - dev_data->dma_channels[channel].start_addr_dest);
+	} else {
+		status->pending_length =  dev_data->dma_channels[channel].block_size -
+			(xdmac->XDMAC_CHID[channel].XDMAC_CSA - dev_data->dma_channels[channel].start_addr_source);
+	}
 
 	return 0;
 }
@@ -359,6 +489,7 @@ static const struct dma_driver_api sam_xdmac_driver_api = {
 	.reload = sam_xdmac_transfer_reload,
 	.start = sam_xdmac_transfer_start,
 	.stop = sam_xdmac_transfer_stop,
+	.get_status = sam_xdmac_transfer_get_status,
 };
 
 /* DMA0 */
@@ -379,5 +510,5 @@ static const struct sam_xdmac_dev_cfg dma0_sam_config = {
 static struct sam_xdmac_dev_data dma0_sam_data;
 
 DEVICE_DT_INST_DEFINE(0, &sam_xdmac_initialize, NULL,
-		    &dma0_sam_data, &dma0_sam_config, POST_KERNEL,
+		    &dma0_sam_data, &dma0_sam_config, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &sam_xdmac_driver_api);

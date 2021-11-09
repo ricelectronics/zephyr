@@ -1,20 +1,21 @@
 /*
+ * Copyright (c) 2021 RIC Electronics
+ * Copyright (c) 2019 Gerson Fernando Budke
  * Copyright (c) 2016 Piotr Mienkowski
  * SPDX-License-Identifier: Apache-2.0
  */
 
 /** @file
- * @brief Atmel SAM E70 MCU initialization code
+ * @brief Atmel SAM S70 MCU initialization code
  *
  * This file provides routines to initialize and support board-level hardware
- * for the Atmel SAM E70 MCU.
+ * for the Atmel SAM S70 MCU.
  */
 
 #include <kernel.h>
 #include <device.h>
 #include <init.h>
 #include <soc.h>
-#include "../common/soc_gpnvm.h"
 #include <arch/arm/aarch32/cortex_m/cmsis.h>
 #include <logging/log.h>
 
@@ -33,21 +34,21 @@ LOG_MODULE_REGISTER(soc);
  * With Processor Clock prescaler at 1
  * Processor Clock (HCLK)=300 MHz.
  */
-#define PMC_CKGR_PLLAR_MULA \
-	(CKGR_PLLAR_MULA(CONFIG_SOC_ATMEL_SAME70_PLLA_MULA))
-#define PMC_CKGR_PLLAR_DIVA \
-	(CKGR_PLLAR_DIVA(CONFIG_SOC_ATMEL_SAME70_PLLA_DIVA))
+#define PMC_CKGR_PLLAR_MULA	\
+	(CKGR_PLLAR_MULA(CONFIG_SOC_ATMEL_SAMS70_PLLA_MULA))
+#define PMC_CKGR_PLLAR_DIVA	\
+	(CKGR_PLLAR_DIVA(CONFIG_SOC_ATMEL_SAMS70_PLLA_DIVA))
 
-#if CONFIG_SOC_ATMEL_SAME70_MDIV == 1
-#define SOC_ATMEL_SAME70_MDIV PMC_MCKR_MDIV_EQ_PCK
-#elif CONFIG_SOC_ATMEL_SAME70_MDIV == 2
-#define SOC_ATMEL_SAME70_MDIV PMC_MCKR_MDIV_PCK_DIV2
-#elif CONFIG_SOC_ATMEL_SAME70_MDIV == 3
-#define SOC_ATMEL_SAME70_MDIV PMC_MCKR_MDIV_PCK_DIV3
-#elif CONFIG_SOC_ATMEL_SAME70_MDIV == 4
-#define SOC_ATMEL_SAME70_MDIV PMC_MCKR_MDIV_PCK_DIV4
+#if CONFIG_SOC_ATMEL_SAMS70_MDIV == 1
+#define SOC_ATMEL_SAMS70_MDIV PMC_MCKR_MDIV_EQ_PCK
+#elif CONFIG_SOC_ATMEL_SAMS70_MDIV == 2
+#define SOC_ATMEL_SAMS70_MDIV PMC_MCKR_MDIV_PCK_DIV2
+#elif CONFIG_SOC_ATMEL_SAMS70_MDIV == 3
+#define SOC_ATMEL_SAMS70_MDIV PMC_MCKR_MDIV_PCK_DIV3
+#elif CONFIG_SOC_ATMEL_SAMS70_MDIV == 4
+#define SOC_ATMEL_SAMS70_MDIV PMC_MCKR_MDIV_PCK_DIV4
 #else
-#error "Invalid CONFIG_SOC_ATMEL_SAME70_MDIV define value"
+#error "Invalid CONFIG_SOC_ATMEL_SAMS70_MDIV define value"
 #endif
 
 /**
@@ -60,7 +61,7 @@ static ALWAYS_INLINE void clock_init(void)
 {
 	uint32_t reg_val;
 
-#ifdef CONFIG_SOC_ATMEL_SAME70_EXT_SLCK
+#ifdef CONFIG_SOC_ATMEL_SAMS70_EXT_SLCK
 	/* Switch slow clock to the external 32 kHz crystal oscillator */
 	SUPC->SUPC_CR = SUPC_CR_KEY_PASSWD | SUPC_CR_XTALSEL;
 
@@ -68,35 +69,9 @@ static ALWAYS_INLINE void clock_init(void)
 	while (!(SUPC->SUPC_SR & SUPC_SR_OSCSEL)) {
 		;
 	}
-#endif /* CONFIG_SOC_ATMEL_SAME70_EXT_SLCK */
+#endif /* CONFIG_SOC_ATMEL_SAMS70_EXT_SLCK */
 
-#ifdef CONFIG_SOC_ATMEL_SAME70_EXT_MAINCK_BYPASS
-	/* Select the external crystal oscillator as main clock */
-	PMC->CKGR_MOR =   CKGR_MOR_KEY_PASSWD
-			| CKGR_MOR_MOSCSEL
-			| CKGR_MOR_MOSCRCEN
-			| CKGR_MOR_MOSCXTBY;
-
-	/* Wait for external oscillator to be selected */
-	while (!(PMC->PMC_SR & PMC_SR_MOSCSELS)) {
-		;
-	}
-
-	/* Wait for frequency register to be ready */
-	while (!(PMC->CKGR_MCFR & CKGR_MCFR_MAINFRDY)) {
-		;
-	}
-
-	/* Turn off RC OSC, not used any longer, to save power */
-	PMC->CKGR_MOR =   CKGR_MOR_KEY_PASSWD
-			| CKGR_MOR_MOSCSEL
-			| CKGR_MOR_MOSCXTBY;
-
-	/* Wait for RC OSC to be turned off */
-	while (PMC->PMC_SR & PMC_SR_MOSCRCS) {
-		;
-	}
-#elif CONFIG_SOC_ATMEL_SAME70_EXT_MAINCK
+#ifdef CONFIG_SOC_ATMEL_SAMS70_EXT_MAINCK
 	/*
 	 * Setup main external crystal oscillator if not already done
 	 * by a previous program i.e. bootloader
@@ -131,11 +106,6 @@ static ALWAYS_INLINE void clock_init(void)
 		while (!(PMC->PMC_SR & PMC_SR_MOSCSELS)) {
 			;
 		}
-
-		/* Wait for frequency register to be ready */
-		while (!(PMC->CKGR_MCFR & CKGR_MCFR_MAINFRDY)) {
-			;
-		}
 	}
 
 	/* Turn off RC OSC, not used any longer, to save power */
@@ -149,7 +119,7 @@ static ALWAYS_INLINE void clock_init(void)
 		;
 	}
 
-#ifdef CONFIG_SOC_ATMEL_SAME70_WAIT_MODE
+#ifdef CONFIG_SOC_ATMEL_SAMS70_WAIT_MODE
 	/*
 	 * Instruct CPU to enter Wait mode instead of Sleep mode to
 	 * keep Processor Clock (HCLK) and thus be able to debug
@@ -177,30 +147,7 @@ static ALWAYS_INLINE void clock_init(void)
 	while (!(PMC->PMC_SR & PMC_SR_MOSCRCS)) {
 		;
 	}
-
-	/* Initialize RC freq measurement */
-	PMC->CKGR_MCFR = CKGR_MOR_KEY_PASSWD
-			 | CKGR_MCFR_RCMEAS;
-
-#endif /* CONFIG_SOC_ATMEL_SAME70_EXT_MAINCK */
-
-
-
-	/* Wait for freq measurement */
-	while (!(PMC->CKGR_MCFR & CKGR_MCFR_MAINFRDY)) {
-		;
-	}
-
-	uint32_t pulse_count = PMC->CKGR_MCFR & CKGR_MCFR_MAINF_Msk;
-
-	if (pulse_count == 0) {
-		LOG_ERR("failed starting main osc");
-	} else {
-		double freq = pulse_count / ((1.0 / 32768.0) * 16);
-		uint32_t clk_speed = freq  + 0.5;
-
-		LOG_WRN("main clock: %u", clk_speed);
-	}
+#endif /* CONFIG_SOC_ATMEL_SAMS70_EXT_MAINCK */
 
 	/*
 	 * Setup PLLA
@@ -253,7 +200,7 @@ static ALWAYS_INLINE void clock_init(void)
 
 	/* Setup divider - Processor Clock (HCLK) / Master Clock (MCK) */
 	reg_val = PMC->PMC_MCKR & ~PMC_MCKR_MDIV_Msk;
-	PMC->PMC_MCKR = reg_val | SOC_ATMEL_SAME70_MDIV;
+	PMC->PMC_MCKR = reg_val | SOC_ATMEL_SAMS70_MDIV;
 
 	/* Wait for Master Clock setup to complete */
 	while (!(PMC->PMC_SR & PMC_SR_MCKRDY)) {
@@ -278,7 +225,7 @@ static ALWAYS_INLINE void clock_init(void)
  *
  * @return 0
  */
-static int atmel_same70_init(const struct device *arg)
+static int atmel_sams70_init(const struct device *arg)
 {
 	uint32_t key;
 
@@ -300,55 +247,6 @@ static int atmel_same70_init(const struct device *arg)
 	 */
 	EFC->EEFC_FMR = EEFC_FMR_FWS(5) | EEFC_FMR_CLOE;
 
-	/*
-	 * Enable dtcm if selected
-	 */
-#if DT_NODE_HAS_STATUS(DT_CHOSEN(zephyr_dtcm), okay)
-	#define TCM_SIZE DT_REG_SIZE(DT_CHOSEN(zephyr_dtcm))
-
-	#if (TCM_SIZE != 32768) && \
-	(TCM_SIZE != 65536) &&	   \
-	(TCM_SIZE != 131072)
-		#error "Invalid DTCM size. Must be 32K, 64K or 128K"
-	#endif
-
-	uint32_t set_bits = 0;
-
-	if (TCM_SIZE == 32768) {
-		set_bits |= BIT(7);
-	} else if (TCM_SIZE == 65536) {
-		set_bits = BIT(8);
-	} else if (TCM_SIZE == 131072) {
-		set_bits = (BIT(7) | BIT(8));
-	}
-	uint32_t gpnvm_bits = soc_gpnvm_read_bits();
-
-	if ((gpnvm_bits & set_bits) != set_bits) {
-		LOG_WRN("PROGRAMMING NON VOLATILE BITS...");
-
-		soc_gpnvm_erase_bit(7);
-		soc_gpnvm_erase_bit(8);
-
-		if (TCM_SIZE == 32768) {
-			soc_gpnvm_set_bit(7);
-		} else if (TCM_SIZE == 65536) {
-			soc_gpnvm_set_bit(8);
-		} else if (TCM_SIZE == 131072) {
-			soc_gpnvm_set_bit(7);
-			soc_gpnvm_set_bit(8);
-		}
-
-		gpnvm_bits = soc_gpnvm_read_bits();
-		if ((gpnvm_bits & set_bits) != set_bits) {
-			LOG_ERR("Failed to program NV bits!");
-		}
-
-		LOG_WRN("PLEASE REBOOT DEVICE");
-		while (true) {
-		}
-	}
-#endif
-
 	/* Setup system clocks */
 	clock_init();
 
@@ -368,4 +266,4 @@ static int atmel_same70_init(const struct device *arg)
 	return 0;
 }
 
-SYS_INIT(atmel_same70_init, PRE_KERNEL_1, 0);
+SYS_INIT(atmel_sams70_init, PRE_KERNEL_1, 0);
