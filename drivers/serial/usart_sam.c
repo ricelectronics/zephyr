@@ -83,7 +83,8 @@ struct usart_sam_dev_data {
 
 	uint8_t *rx_buf;
 	size_t rx_len;
-	size_t rx_processed_len;
+	size_t rx_processed_len_cycle;
+	size_t rx_processed_len_total;
 	uint8_t *rx_next_buf;
 	size_t rx_next_len;
 	bool rx_waiting_for_irq;
@@ -147,7 +148,23 @@ static void uart_sam_dma_tx_done(const struct device *dma_dev, void *arg,
 	struct usart_sam_dev_data *const dev_data =
 		(struct usart_sam_dev_data *const) arg;
 
+	// Run the callback here so that the next transfer can start
+
 	dev_data->tx_len = 0;
+
+	// Send an event to tell the user more data can be sent
+	struct uart_event evt = {
+		.type = UART_TX_DONE,
+		.data.tx = {
+			.buf = dev_data->tx_buf,
+			.len = 0U,
+		},
+	};
+
+	if (dev_data->async_cb) {
+		dev_data->async_cb(dev_data->dev,
+					&evt, dev_data->async_cb_data);
+	}
 }
 
 static int uart_sam_tx_halt(struct usart_sam_dev_data *dev_data)
@@ -193,10 +210,60 @@ static void uart_sam_tx_timeout(struct k_work *work)
 	struct usart_sam_dev_data *dev_data = CONTAINER_OF(work,
 							   struct usart_sam_dev_data, tx_timeout_work);
 
+	LOG_WRN("TX Timeout!");
 	uart_sam_tx_halt(dev_data);
 }
 
-static void uart_sam_notify_rx_processed(const struct device *dev)
+static void uart_sam_request_buffer(const struct device *dev)
+{
+	struct usart_sam_dev_data *const dev_data = DEV_DATA(dev);
+	struct uart_event evt = {
+		.type = UART_RX_BUF_REQUEST
+	};
+
+	dev_data->async_cb(dev, &evt, dev_data->async_cb_data);
+}
+
+static void uart_sam_release_rx_buffer(const struct device *dev, uint8_t *buf)
+{
+	struct usart_sam_dev_data *const dev_data = DEV_DATA(dev);
+	struct uart_event evt = {
+		.type = UART_RX_BUF_RELEASED,
+		.data.rx_buf = buf
+	};
+
+	dev_data->async_cb(dev, &evt, dev_data->async_cb_data);
+}
+
+// Swaps to the next buffer is there is little space left in the current buffer
+static void uart_sam_dma_swap(const struct device *dev, int space_left)
+{
+	struct usart_sam_dev_data *const dev_data = DEV_DATA(dev);
+	if (8 >= space_left) {
+		if (dev_data->rx_next_len) {
+			// On suspending we want to switch to the next buffer if there is one available
+			uart_sam_release_rx_buffer(dev, dev_data->rx_buf);
+			dev_data->rx_buf = dev_data->rx_next_buf;
+			dev_data->rx_len = dev_data->rx_next_len;
+			dev_data->rx_next_buf = NULL;
+			dev_data->rx_next_len = 0U;
+		} else {
+			// There is no next buffer. First request it. The callback must supply one
+			uart_sam_request_buffer(dev);
+			__ASSERT(dev_data->rx_buf != NULL, "bug: the callback must provide a buffer");
+			uart_sam_release_rx_buffer(dev, dev_data->rx_buf);
+			dev_data->rx_buf = dev_data->rx_next_buf;
+			dev_data->rx_len = dev_data->rx_next_len;
+			dev_data->rx_next_buf = NULL;
+			dev_data->rx_next_len = 0U;
+		}
+
+		uart_sam_request_buffer(dev);
+		dev_data->rx_processed_len_total = 0;
+	}
+}
+
+static int uart_sam_notify_rx_processed(const struct device *dev)
 {
 	const struct usart_sam_dev_cfg *const cfg = DEV_CFG(dev);
 	struct usart_sam_dev_data *const dev_data = DEV_DATA(dev);
@@ -207,47 +274,79 @@ static void uart_sam_notify_rx_processed(const struct device *dev)
 		return;
 	}
 
-
 	if (dma_get_status(cfg->dma_dev, cfg->rx_dma_channel, &st) == 0
 		&& st.pending_length != 0U) {
-		processed = (dev_data->rx_len + dev_data->rx_processed_len)
-			- st.pending_length;
+		processed = dev_data->rx_len - st.pending_length;
+	} else {
+		LOG_ERR("Error reading dma status!");
 	}
 
-	if (dev_data->rx_processed_len == processed) {
-		return;
-	}
-
-	dev_data->rx_processed_len = processed - dev_data->rx_processed_len;
+	processed += dev_data->rx_processed_len_cycle;
 
 	struct uart_event evt = {
 		.type = UART_RX_RDY,
 		.data.rx = {
 			.buf = dev_data->rx_buf,
-			.offset = 0,
-			.len = dev_data->rx_processed_len,
+			.offset = dev_data->rx_processed_len_total,
+			.len = processed,
 		},
 	};
 
-	//LOG_DBG("rx proccessed count total: %d", dev_data->rx_processed_len);
+	dev_data->rx_processed_len_total += processed;
+	dev_data->rx_processed_len_cycle = 0;
+	dev_data->async_cb(dev_data->dev, &evt, dev_data->async_cb_data);
 
-	if (dev_data->rx_next_len) {
-		// On suspending we want to switch to the next buffer if there is one available
-		dev_data->rx_buf = dev_data->rx_next_buf;
-		dev_data->rx_len = dev_data->rx_next_len;
-		SCB_CleanInvalidateDCache_by_Addr(dev_data->rx_buf, 128);
-		dev_data->rx_next_buf = NULL;
-		dev_data->rx_next_len = 0U;
-	} else {
-		// otherwise just wipe the remaining buf out, a new one must be supplied
-		dev_data->rx_buf = NULL;
-		dev_data->rx_len = 0U;
+	// return the space left in the current buffer
+	return processed;
+
+}
+
+static int uart_sam_dma_rx_reload(const struct device *dev)
+{
+	const struct usart_sam_dev_cfg *const cfg = DEV_CFG(dev);
+	struct usart_sam_dev_data *const dev_data = DEV_DATA(dev);
+	Usart *const usart = cfg->regs;
+
+	uint32_t index = dev_data->rx_processed_len_total + dev_data->rx_processed_len_cycle;
+	uint32_t len = dev_data->rx_len - dev_data->rx_processed_len_cycle;
+	if (index >= len) {
+		// copy the written byte by the isr
+		uint8_t *old_buf = dev_data->rx_buf;
+		// swap buffers
+		uart_sam_dma_swap(dev, len - index);
+		// copy the written byte by the isr to the new location
+		for (int i = 0; i<dev_data->rx_processed_len_cycle; i++) {
+			dev_data->rx_buf[i] = old_buf[dev_data->rx_processed_len_total+i];
+		}
+		index = dev_data->rx_processed_len_cycle;
+		dev_data->rx_processed_len_total = 0;
+	}
+	int retval = dma_stop(cfg->dma_dev, cfg->rx_dma_channel);
+	if (retval != 0) {
+		LOG_ERR("Failed to stop RX DMA: %d", retval);
+		return retval;
 	}
 
-	dev_data->async_cb(dev_data->dev,
-			   &evt, dev_data->async_cb_data);
+	retval = dma_reload(cfg->dma_dev, cfg->rx_dma_channel,
+		   (uint32_t)(&(usart->US_RHR)),
+		   (uint32_t)&dev_data->rx_buf[index],
+		   len);
 
-	dev_data->rx_processed_len = 0;
+	if (retval != 0) {
+		LOG_ERR("Failed to reload RX DMA: %d", retval);
+		return retval;
+	}
+	LOG_DBG("reloaded @ index: %d, with len of: %d", index, len);
+
+	/* Otherwise, start the transfer immediately. */
+	retval = dma_start(cfg->dma_dev, cfg->rx_dma_channel);
+	if (retval != 0) {
+		LOG_ERR("Failed to start RX DMA");
+		return retval;
+	}
+
+	dev_data->rx_dma_active = true;
+	return 0;
 }
 
 static void uart_sam_dma_rx_done(const struct device *dma_dev, void *arg,
@@ -256,56 +355,100 @@ static void uart_sam_dma_rx_done(const struct device *dma_dev, void *arg,
 	ARG_UNUSED(id);
 	ARG_UNUSED(error_code);
 
-	LOG_DBG("dma rx transfer complete");
-
 	struct usart_sam_dev_data *const dev_data =
 		(struct usart_sam_dev_data *const)arg;
 	const struct device *dev = dev_data->dev;
 	const struct usart_sam_dev_cfg *const cfg = dev_data->cfg;
 	Usart *const usart = cfg->regs;
+	int retval = 0;
 	int key = irq_lock();
+
+	__ASSERT(!dev_data->rx_dma_active, "Should only be called if DMA is active!");
+
+	dev_data->rx_dma_active = false;
+
+	uart_sam_notify_rx_processed(dev);
+	//uart_sam_dma_swap(dev, space_left);
 
 	if (dev_data->rx_len == 0U) {
 		irq_unlock(key);
+		LOG_WRN("BUG: The callback must provide a buffer");
 		return;
 	}
 
-	uart_sam_notify_rx_processed(dev);
+	//TODO: check result and abort
+	uart_sam_dma_rx_reload(dev);
 
-	/* No next buffer, so end the transfer */
-	if (!dev_data->rx_next_len) {
-		dev_data->rx_buf = NULL;
-		dev_data->rx_len = 0U;
+	_enable_rx_timeout(usart, dev_data, dev_data->timeout);
+	_disable_rx_int(usart);
 
-		if (dev_data->async_cb) {
-			struct uart_event evt = {
-				.type = UART_RX_DISABLED,
-			};
-
-			dev_data->async_cb(dev, &evt, dev_data->async_cb_data);
-		}
-
-		irq_unlock(key);
-		return;
-	}
-
-	dev_data->rx_buf = dev_data->rx_next_buf;
-	dev_data->rx_len = dev_data->rx_next_len;
-	dev_data->rx_next_buf = NULL;
-	dev_data->rx_next_len = 0U;
-	dev_data->rx_processed_len = 0U;
-
-	dma_reload(dma_dev, cfg->rx_dma_channel,
-		   (uint32_t)(&(usart->US_RHR)),
-		   (uint32_t)dev_data->rx_buf, dev_data->rx_len);
-
-	/* Otherwise, start the transfer immediately. */
-	dma_start(dma_dev, cfg->rx_dma_channel);
-
+err:
 	irq_unlock(key);
 }
 
 #endif
+
+
+static int uart_sam_configure(const struct device *dev,
+				const struct uart_config *cfg)
+{
+	const struct usart_sam_dev_cfg *const dev_cfg = DEV_CFG(dev);
+	struct usart_sam_dev_data *const dev_data = DEV_DATA(dev);
+	Usart *const usart = dev_cfg->regs;
+
+	/* Reset and disable USART */
+	usart->US_CR =   US_CR_RSTRX
+		| US_CR_RSTTX
+		| US_CR_RXDIS
+		| US_CR_TXDIS
+		| US_CR_RSTSTA
+		| US_CR_USART_DTRDIS
+		| US_CR_USART_RTSDIS;
+	__DSB();
+
+	/* Disable Interrupts */
+	usart->US_IDR = 0xFFFFFFFF;
+	__DSB();
+
+	__ASSERT(usart->US_IMR == 0, "Failed to disable interrupts");
+
+
+
+	/* 8 bits of data, no parity, 1 stop bit in normal mode */
+	usart->US_MR =   US_MR_USART_MODE_NORMAL
+		       | US_MR_CHRL_8_BIT
+		       | US_MR_USCLKS_MCK
+		       | US_MR_CHMODE_NORMAL;
+	__DSB();
+
+	if (cfg->stop_bits == UART_CFG_STOP_BITS_2) {
+		usart->US_MR |= US_MR_NBSTOP_2_BIT;
+	} else {
+		usart->US_MR |= US_MR_NBSTOP_1_BIT;
+	}
+	__DSB();
+
+	if (cfg->parity == UART_CFG_PARITY_ODD) {
+		usart->US_MR |= US_MR_PAR_ODD;
+	} else if (cfg->parity == UART_CFG_PARITY_EVEN) {
+		usart->US_MR |= US_MR_PAR_EVEN;
+	} else {
+		usart->US_MR |= US_MR_PAR_NO;
+	}
+	__DSB();
+
+	/* Set baud rate */
+	int retval = baudrate_set(usart, cfg->baudrate,
+			      SOC_ATMEL_SAM_MCK_FREQ_HZ);
+	if (retval != 0) {
+		return retval;
+	}
+
+	/* Enable receiver and transmitter */
+	usart->US_CR = US_CR_RXEN | US_CR_TXEN;
+	__DSB();
+	return 0;
+};
 
 
 static int usart_sam_init(const struct device *dev)
@@ -323,18 +466,29 @@ static int usart_sam_init(const struct device *dev)
 	soc_gpio_configure(&cfg->pin_tx);
 
 	/* Reset and disable USART */
-	usart->US_CR =   US_CR_RSTRX | US_CR_RSTTX
-		       | US_CR_RXDIS | US_CR_TXDIS | US_CR_RSTSTA;
+	usart->US_CR =   US_CR_RSTRX
+		| US_CR_RSTTX
+		| US_CR_RXDIS
+		| US_CR_TXDIS
+		| US_CR_RSTSTA
+		| US_CR_USART_DTRDIS
+		| US_CR_USART_RTSDIS;
+	__DSB();
 
 	/* Disable Interrupts */
 	usart->US_IDR = 0xFFFFFFFF;
+	__DSB();
+
+	__ASSERT(usart->US_IMR == 0, "Failed to disable interrupts");
 
 	/* 8 bits of data, no parity, 1 stop bit in normal mode */
-	usart->US_MR =   US_MR_NBSTOP_1_BIT
+	usart->US_MR =   US_MR_USART_MODE_NORMAL
+		       | US_MR_NBSTOP_1_BIT
 		       | US_MR_PAR_NO
 		       | US_MR_CHRL_8_BIT
 		       | US_MR_USCLKS_MCK
 		       | US_MR_CHMODE_NORMAL;
+	__DSB();
 
 	/* Set baud rate */
 	retval = baudrate_set(usart, dev_data->baud_rate,
@@ -345,11 +499,12 @@ static int usart_sam_init(const struct device *dev)
 
 	/* Enable receiver and transmitter */
 	usart->US_CR = US_CR_RXEN | US_CR_TXEN;
+	__DSB();
 
 #if CONFIG_UART_INTERRUPT_DRIVEN || CONFIG_UART_ASYNC_API
 	if (cfg->backend == USART_SAM_BACKEND_INT ||
 	    cfg->backend == USART_SAM_BACKEND_DMA) {
-		    cfg->irq_config_func(dev);
+		cfg->irq_config_func(dev);
 	}
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
@@ -357,6 +512,10 @@ static int usart_sam_init(const struct device *dev)
 	if (cfg->backend == USART_SAM_BACKEND_DMA) {
 		dev_data->dev = dev;
 		dev_data->cfg = cfg;
+
+		//usart->US_IDR = US_IDR_TXRDY;
+		//__DSB();
+
 		while (!device_is_ready(cfg->dma_dev)) {
 			k_sleep(K_MSEC(1));
 		}
@@ -620,7 +779,8 @@ static int _rx_dma_resume(const struct device *dev)
 	Usart * const usart = DEV_CFG(dev)->regs;
 	int retval;
 
-	__ASSERT(!dev_data->rx_dma_active, "Should only be called if DMA is inactive!");
+	//TODO: Investigate why this fails. Potential race condition
+	//__ASSERT(!dev_data->rx_dma_active, "Should only be called if DMA is inactive!");
 
 	if (cfg->rx_dma_channel == 0xFFU) {
 		return -ENOTSUP;
@@ -634,26 +794,11 @@ static int _rx_dma_resume(const struct device *dev)
 		return -ENOBUFS;
 	}
 
-	retval = dma_reload(cfg->dma_dev, cfg->rx_dma_channel,
-			    (uint32_t)(&(usart->US_RHR)),
-			    (uint32_t)(&dev_data->rx_buf[dev_data->rx_processed_len]),
-			    dev_data->rx_len-dev_data->rx_processed_len);
-	if (retval != 0) {
-		LOG_ERR("Failed to reload RX DMA");
-		goto err;
-	}
-
-	retval = dma_start(cfg->dma_dev, cfg->rx_dma_channel);
-	if (retval != 0) {
-		LOG_ERR("Failed to start RX DMA");
-		goto err;
-	}
-	dev_data->rx_dma_active = true;
+	//TODO: check ret val and abort if it failed
+	uart_sam_dma_rx_reload(dev);
 
 	irq_unlock(key);
-	//LOG_DBG("rx dma resume");
 	return 0;
-
 err:
 	irq_unlock(key);
 	return retval;
@@ -694,6 +839,9 @@ static int uart_sam_tx(const struct device *dev, const uint8_t *buf,
 		retval = -EBUSY;
 		goto err;
 	}
+
+	// Enable transmitter
+	//usart->US_CR = US_CR_TXEN;
 
 	// Adjust for block length
 	dev_data->dma_blk_tx.block_size = len;
@@ -742,12 +890,10 @@ static int uart_sam_rx_enable(const struct device *dev, uint8_t *buf,
 	struct usart_sam_dev_data *const dev_data = DEV_DATA(dev);
 	const struct usart_sam_dev_cfg *const cfg = DEV_CFG(dev);
 	Usart * const usart = DEV_CFG(dev)->regs;
-	int retval;
+	int retval = 0;
+	int key = irq_lock();
 
-	if (dev_data->rx_dma_active) {
-		LOG_WRN("rx DMA is already active");
-		return 0;
-	}
+	__ASSERT(!dev_data->rx_dma_active, "Should only be called if DMA is inactive!");
 
 	if (cfg->rx_dma_channel == 0xFFU) {
 		return -ENOTSUP;
@@ -761,36 +907,25 @@ static int uart_sam_rx_enable(const struct device *dev, uint8_t *buf,
 		return -EINVAL;
 	}
 
-	int key = irq_lock();
-
 	if (dev_data->rx_len != 0U) {
 		retval = -EBUSY;
 		goto err;
 	}
 
-	retval = dma_reload(cfg->dma_dev, cfg->rx_dma_channel,
-			    (uint32_t)(&(usart->US_RHR)),
-			    (uint32_t)buf, len);
-	if (retval != 0) {
-		LOG_ERR("Failed to reload rx DMA");
-		goto err;
-	}
-
 	dev_data->rx_buf = buf;
 	dev_data->rx_len = len;
-	dev_data->rx_processed_len = 0U;
+	dev_data->rx_processed_len_total = 0U;
+	dev_data->rx_processed_len_cycle = 0U;
+
+	// Request second buffer
+	uart_sam_request_buffer(dev);
+
+	// TODO: check retval and abort on failure
+	uart_sam_dma_rx_reload(dev);
 
 	_enable_rx_timeout(usart, dev_data, timeout);
 	_disable_rx_int(usart);
 	dev_data->timeout = timeout;
-
-	retval = dma_start(cfg->dma_dev, cfg->rx_dma_channel);
-	if (retval != 0) {
-		LOG_ERR("Failed to start RX DMA");
-		goto err;
-	}
-
-	dev_data->rx_dma_active = true;
 
 	irq_unlock(key);
 	return 0;
@@ -814,7 +949,7 @@ static int uart_sam_rx_buf_rsp(const struct device *dev, uint8_t *buf,
 	if (dev_data->rx_len == 0U) {
 		dev_data->rx_buf = buf;
 		dev_data->rx_len = len;
-	} else if (dev_data->rx_next_len != 0U) {
+	} else if (dev_data->rx_next_len == 0U) {
 		dev_data->rx_next_buf = buf;
 		dev_data->rx_next_len = len;
 	} else {
@@ -836,6 +971,7 @@ static int _rx_dma_suspend(const struct device *dev)
 	int key = irq_lock();
 
 	if (dev_data->rx_len == 0U) {
+		LOG_WRN("suspend but length is 0");
 		irq_unlock(key);
 		return -EINVAL;
 	}
@@ -859,7 +995,6 @@ static int _rx_dma_suspend(const struct device *dev)
 	}
 
 	irq_unlock(key);
-	//LOG_DBG("rx dma suspend");
 	return 0;
 }
 
@@ -875,58 +1010,91 @@ static int uart_sam_rx_disable(const struct device *dev)
 static void usart_sam_isr(const struct device *dev)
 {
 	struct usart_sam_dev_data *const dev_data = DEV_DATA(dev);
+	const struct usart_sam_dev_cfg *const cfg = DEV_CFG(dev);
+
 #if CONFIG_UART_INTERRUPT_DRIVEN
-	if (dev_data->irq_cb) {
-		dev_data->irq_cb(dev, dev_data->cb_data);
-		return;
+	if (cfg->backend == USART_SAM_BACKEND_INT) {
+		if (dev_data->irq_cb) {
+			dev_data->irq_cb(dev, dev_data->cb_data);
+			return;
+		}
 	}
 #endif
 #if CONFIG_UART_ASYNC_API
-	// First check which interrupt was triggered
-	const struct usart_sam_dev_cfg *const cfg = DEV_CFG(dev);
-	Usart *const usart = cfg->regs;
+	if (cfg->backend == USART_SAM_BACKEND_DMA) {
+		// First check which interrupt was triggered
 
-	if (usart->US_CSR & US_CSR_RXRDY) {
-		/* On RX recieve enable DMA again */
-		__ASSERT(dev_data->rx_processed_len == 0, "bug: this can only be the first character");
+		Usart *const usart = cfg->regs;
 
-		int key = irq_lock();
+		if (usart->US_CSR & US_CSR_RXRDY) {
+			/* On RX recieve enable DMA again */
+			int key = irq_lock();
+			_disable_rx_int(usart);
 
-		if (dev_data->rx_len) {
-			dev_data->rx_buf[0] = usart->US_RHR & 0x0000000F;
-			dev_data->rx_processed_len++;
-		} else {
-			LOG_WRN("No buffer to write rx data!");
+			if (dev_data->rx_len) {
+				dev_data->rx_buf[dev_data->rx_processed_len_total + dev_data->rx_processed_len_cycle++]
+					= usart->US_RHR & 0x0000000F;
+			} else {
+				LOG_WRN("No buffer to write rx data!");
+			}
+
+			int ret = _rx_dma_resume(dev);
+
+
+			if (ret == -ENOBUFS || dev_data->rx_len == dev_data->rx_processed_len_total) {
+				//TODO: An optimization would be to never let this happen.
+				// If the buffer is more than half or 3/4 full, switch to the next buffer?
+				LOG_WRN("NO BUFF SPACE, RESTART");
+				uart_sam_dma_rx_done(cfg->dma_dev, dev_data, 0, 0);
+			} else {
+				_enable_rx_timeout(usart, dev_data, dev_data->timeout);
+			}
+
+			irq_unlock(key);
+			return;
 		}
 
-		int ret = _rx_dma_resume(dev);
+		if (usart->US_CSR & US_CSR_TIMEOUT) {
+			/* On RX timeout disable DMA, and flush the bytes */
+			int key = irq_lock();
+			_disable_rx_timeout(usart);
+			_rx_dma_suspend(dev);
+			_enable_rx_int(usart);
+			irq_unlock(key);
+			return;
+		}
 
-		if (ret == -ENOBUFS || dev_data->rx_len == dev_data->rx_processed_len) {
+		if (usart->US_CSR & US_CSR_TXRDY || usart->US_CSR & US_CSR_TXEMPTY) {
+			// Want to reload tx transmission here
+			//usart->US_CR = US_CR_TXDIS;
 			struct uart_event evt = {
-				.type = UART_RX_BUF_REQUEST,
+				.type = UART_TX_DONE,
+				.data.tx = {
+					.buf = dev_data->tx_buf,
+					.len = 0U,
+				},
 			};
 
-			dev_data->async_cb(dev, &evt, dev_data->async_cb_data);
-		} else {
-			_disable_rx_int(usart);
-			_enable_rx_timeout(usart, dev_data, dev_data->timeout);
+			if (dev_data->async_cb) {
+				dev_data->async_cb(dev_data->dev, &evt, dev_data->async_cb_data);
+			}
+			return;
 		}
 
-		irq_unlock(key);
-		return;
-	}
+		if (usart->US_CSR & US_CSR_OVRE || usart->US_CSR & US_CSR_FRAME || usart->US_CSR & US_CSR_PARE) {
+			LOG_WRN("Uart overflow parity or frame error!");
+			usart->US_CR = US_CR_RSTSTA;
+			return;
+		}
 
-	if (usart->US_CSR & US_CSR_TIMEOUT) {
-		/* On RX timeout disable DMA, and flush the bytes */
-		int key = irq_lock();
-		_disable_rx_timeout(usart);
-		_rx_dma_suspend(dev);
-		_enable_rx_int(usart);
-		irq_unlock(key);
-		return;
-	}
+		if (usart->US_CSR & US_CSR_CTS || usart->US_CSR & US_CSR_DCD) {
+			LOG_WRN("CTS Interrupt!");
+			return;
+		}
 
-	LOG_DBG("unknown ISR: %x:", usart->US_CSR);
+
+		LOG_DBG("unknown ISR: %x:", usart->US_CSR);
+	}
 	#endif
 }
 #endif
@@ -935,6 +1103,7 @@ static const struct uart_driver_api usart_sam_driver_api = {
 	.poll_in = usart_sam_poll_in,
 	.poll_out = usart_sam_poll_out,
 	.err_check = usart_sam_err_check,
+	.configure = uart_sam_configure,
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	.fifo_fill = usart_sam_fifo_fill,
 	.fifo_read = usart_sam_fifo_read,
@@ -1007,7 +1176,6 @@ static void usart##n##_sam_irq_config_func(const struct device *port)	\
 									\
 	static struct usart_sam_dev_data usart##n##_sam_data = {	\
 		.baud_rate = DT_INST_PROP(n, current_speed),		\
-		.timeout = 0						\
 	};								\
 									\
 	USART_SAM_DECLARE_CFG(n)					\
