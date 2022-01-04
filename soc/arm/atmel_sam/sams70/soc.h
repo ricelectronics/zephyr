@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 RIC Electronics
+ * Copyright (c) 2022 RIC Electronics
  * Copyright (c) 2019 Gerson Fernando Budke
  * Copyright (c) 2016 Piotr Mienkowski
  * SPDX-License-Identifier: Apache-2.0
@@ -26,7 +26,25 @@
 #define DONT_USE_PREDEFINED_CORE_HANDLERS
 #define DONT_USE_PREDEFINED_PERIPHERALS_HANDLERS
 
-#if defined CONFIG_SOC_PART_NUMBER_SAMS70J19B
+#if defined CONFIG_SOC_PART_NUMBER_SAMS70J19
+#include <sams70j19.h>
+#elif defined CONFIG_SOC_PART_NUMBER_SAMS70J20
+#include <sams70j20.h>
+#elif defined CONFIG_SOC_PART_NUMBER_SAMS70J21
+#include <sams70j21.h>
+#elif defined CONFIG_SOC_PART_NUMBER_SAMS70N19
+#include <sams70n19.h>
+#elif defined CONFIG_SOC_PART_NUMBER_SAMS70N20
+#include <sams70n20.h>
+#elif defined CONFIG_SOC_PART_NUMBER_SAMS70N21
+#include <sams70n21.h>
+#elif defined CONFIG_SOC_PART_NUMBER_SAMS70Q19
+#include <sams70q19.h>
+#elif defined CONFIG_SOC_PART_NUMBER_SAMS70Q20
+#include <sams70q20.h>
+#elif defined CONFIG_SOC_PART_NUMBER_SAMS70Q21
+#include <sams70q21.h>
+#elif defined CONFIG_SOC_PART_NUMBER_SAMS70J19B
 #include <sams70j19b.h>
 #elif defined CONFIG_SOC_PART_NUMBER_SAMS70J20B
 #include <sams70j20b.h>
@@ -62,5 +80,6 @@
 #endif /* _ASMLANGUAGE */
 
 #include "pwm_fixup.h"
+#include "fixups.h"
 
 #endif /* _ATMEL_SAMS70_SOC_H_ */

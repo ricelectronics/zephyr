@@ -1,5 +1,6 @@
 # Atmel SAM S70 MCU series configuration options
 
+# Copyright (c) 2022 RIC Electronics
 # Copyright (c) 2019 Gerson Fernando Budke
 # Copyright (c) 2016 Piotr Mienkowski
 # SPDX-License-Identifier: Apache-2.0
@@ -10,6 +11,15 @@ config SOC_SERIES
 	default "sams70"
 
 config SOC_PART_NUMBER
+	default "sams70q21" if SOC_PART_NUMBER_SAMS70Q21
+	default "sams70q20" if SOC_PART_NUMBER_SAMS70Q20
+	default "sams70q19" if SOC_PART_NUMBER_SAMS70Q19
+	default "sams70n21" if SOC_PART_NUMBER_SAMS70N21
+	default "sams70n20" if SOC_PART_NUMBER_SAMS70N20
+	default "sams70n19" if SOC_PART_NUMBER_SAMS70N19
+	default "sams70j21" if SOC_PART_NUMBER_SAMS70J21
+	default "sams70j20" if SOC_PART_NUMBER_SAMS70J20
+	default "sams70j19" if SOC_PART_NUMBER_SAMS70J19
 	default "sams70q21b" if SOC_PART_NUMBER_SAMS70Q21B
 	default "sams70q20b" if SOC_PART_NUMBER_SAMS70Q20B
 	default "sams70q19b" if SOC_PART_NUMBER_SAMS70Q19B

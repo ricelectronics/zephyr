@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2021 RIC Electronics
  * Copyright (c) 2020 Linaro Limited
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -12,28 +13,7 @@
 			/* instance, signal, pio, pin, peripheral */
 			DT_ATMEL_PIN(afec0, adtrg, a, 8, b);
 			DT_ATMEL_PIN(afec1, adtrg, d, 9, c);
-			DT_ATMEL_PIN(gmac, gcol, d, 13, a);
-			DT_ATMEL_PIN(gmac, gcrs, d, 10, a);
-			DT_ATMEL_PIN(gmac, gmdc, d, 8, a);
-			DT_ATMEL_PIN(gmac, gmdio, d, 9, a);
-			DT_ATMEL_PIN(gmac, grxck, d, 14, a);
-			DT_ATMEL_PIN(gmac, grxdv, d, 4, a);
-			DT_ATMEL_PIN(gmac, grxer, d, 7, a);
-			DT_ATMEL_PIN(gmac, grx0, d, 5, a);
-			DT_ATMEL_PIN(gmac, grx1, d, 6, a);
-			DT_ATMEL_PIN(gmac, grx2, d, 11, a);
-			DT_ATMEL_PIN(gmac, grx3, d, 12, a);
-			DT_ATMEL_PIN(gmac, gtsucomp, b, 1, b);
-			DT_ATMEL_PIN(gmac, gtsucomp, b, 12, b);
-			DT_ATMEL_PIN(gmac, gtsucomp, d, 11, c);
-			DT_ATMEL_PIN(gmac, gtsucomp, d, 20, c);
-			DT_ATMEL_PIN(gmac, gtxck, d, 0, a);
-			DT_ATMEL_PIN(gmac, gtxen, d, 1, a);
-			DT_ATMEL_PIN(gmac, gtxer, d, 17, a);
-			DT_ATMEL_PIN(gmac, gtx0, d, 2, a);
-			DT_ATMEL_PIN(gmac, gtx1, d, 3, a);
-			DT_ATMEL_PIN(gmac, gtx2, d, 15, a);
-			DT_ATMEL_PIN(gmac, gtx3, d, 16, a);
+			/* Note that analog input pins on sam chips are always connected  */
 			DT_ATMEL_PIN(spi0, miso, d, 20, b);
 			DT_ATMEL_PIN(spi0, mosi, d, 21, b);
 			DT_ATMEL_PIN(spi0, npcs0, b, 2, d);
@@ -42,16 +22,6 @@
 			DT_ATMEL_PIN(spi0, npcs2, d, 12, c);
 			DT_ATMEL_PIN(spi0, npcs3, d, 27, b);
 			DT_ATMEL_PIN(spi0, spck, d, 22, b);
-			DT_ATMEL_PIN(spi1, miso, c, 26, c);
-			DT_ATMEL_PIN(spi1, mosi, c, 27, c);
-			DT_ATMEL_PIN(spi1, npcs0, c, 25, c);
-			DT_ATMEL_PIN(spi1, npcs1, c, 28, c);
-			DT_ATMEL_PIN(spi1, npcs1, d, 0, c);
-			DT_ATMEL_PIN(spi1, npcs2, c, 29, c);
-			DT_ATMEL_PIN(spi1, npcs2, d, 1, c);
-			DT_ATMEL_PIN(spi1, npcs3, c, 30, c);
-			DT_ATMEL_PIN(spi1, npcs3, d, 2, c);
-			DT_ATMEL_PIN(spi1, spck, c, 24, c);
 			DT_ATMEL_PIN(ssc, rd, a, 10, c);
 			DT_ATMEL_PIN(ssc, rf, d, 24, b);
 			DT_ATMEL_PIN(ssc, rk, a, 22, a);
@@ -117,39 +87,9 @@
 			DT_ATMEL_PIN(tc0, tiob0, a, 1, b);
 			DT_ATMEL_PIN(tc0, tiob1, a, 16, b);
 			DT_ATMEL_PIN(tc0, tiob2, a, 27, b);
-			DT_ATMEL_PIN(tc1, tclk3, c, 25, b);
-			DT_ATMEL_PIN(tc1, tclk4, c, 28, b);
-			DT_ATMEL_PIN(tc1, tclk5, c, 31, b);
-			DT_ATMEL_PIN(tc1, tioa3, c, 23, b);
-			DT_ATMEL_PIN(tc1, tioa4, c, 26, b);
-			DT_ATMEL_PIN(tc1, tioa5, c, 29, b);
-			DT_ATMEL_PIN(tc1, tiob3, c, 24, b);
-			DT_ATMEL_PIN(tc1, tiob4, c, 27, b);
-			DT_ATMEL_PIN(tc1, tiob5, c, 30, b);
-			DT_ATMEL_PIN(tc2, tclk6, c, 7, b);
-			DT_ATMEL_PIN(tc2, tclk7, c, 10, b);
-			DT_ATMEL_PIN(tc2, tclk8, c, 14, b);
-			DT_ATMEL_PIN(tc2, tioa6, c, 5, b);
-			DT_ATMEL_PIN(tc2, tioa7, c, 8, b);
-			DT_ATMEL_PIN(tc2, tioa8, c, 11, b);
-			DT_ATMEL_PIN(tc2, tiob6, c, 6, b);
-			DT_ATMEL_PIN(tc2, tiob7, c, 9, b);
-			DT_ATMEL_PIN(tc2, tiob8, c, 12, b);
-			DT_ATMEL_PIN(tc3, tclk9, e, 2, b);
-			DT_ATMEL_PIN(tc3, tclk10, e, 5, b);
 			DT_ATMEL_PIN(tc3, tclk11, d, 24, c);
-			DT_ATMEL_PIN(tc3, tioa9, e, 0, b);
-			DT_ATMEL_PIN(tc3, tioa10, e, 3, b);
 			DT_ATMEL_PIN(tc3, tioa11, d, 21, c);
-			DT_ATMEL_PIN(tc3, tiob9, e, 1, b);
-			DT_ATMEL_PIN(tc3, tiob10, e, 4, b);
 			DT_ATMEL_PIN(tc3, tiob11, d, 22, c);
-			DT_ATMEL_PIN(hsmci, mccda, c, 28, a);
-			DT_ATMEL_PIN(hsmci, mcck, d, 25, a);
-			DT_ATMEL_PIN(hsmci, mcda0, c, 30, a);
-			DT_ATMEL_PIN(hsmci, mcda1, c, 31, a);
-			DT_ATMEL_PIN(hsmci, mcda2, c, 26, a);
-			DT_ATMEL_PIN(hsmci, mcda3, c, 27, a);
 			DT_ATMEL_PIN(qspi, qsck, a, 14, a);
 			DT_ATMEL_PIN(qspi, qcs, a, 11, a);
 			DT_ATMEL_PIN(qspi, qio0, a, 13, a);

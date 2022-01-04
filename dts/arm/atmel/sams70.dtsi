@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2021 RIC Electronics
  * Copyright (c) 2017 Piotr Mienkowski
  * Copyright (c) 2017 Justin Watson
  *
@@ -8,8 +9,9 @@
 #include <arm/armv7-m.dtsi>
 #include <dt-bindings/i2c/i2c.h>
 #include <dt-bindings/gpio/gpio.h>
+#include "dma_atmel_sams70.h"
 
-#include "same70-pinctrl.dtsi"
+#include "sams70-pinctrl.dtsi"
 
 / {
 	aliases {
@@ -60,7 +62,7 @@
 
 			flash0: flash@400000 {
 				compatible = "soc-nv-flash";
-				label = "FLASH_E70";
+				label = "FLASH_S70";
 
 				write-block-size = <16>;
 				erase-block-size = <8192>;
@@ -128,18 +130,7 @@
 			pinctrl-0 = <&pd20b_spi0_miso &pd21b_spi0_mosi &pd22b_spi0_spck>;
 		};
 
-		spi1: spi@40058000 {
-			compatible = "atmel,sam-spi";
-			#address-cells = <1>;
-			#size-cells = <0>;
-			reg = <0x40058000 0x4000>;
-			interrupts = <42 0>;
-			peripheral-id = <42>;
-			label = "SPI_1";
-			status = "disabled";
-			pinctrl-0 = <&pc26c_spi1_miso &pc27c_spi1_mosi &pc24c_spi1_spck>;
-		};
-
+		/* TODO: Implement this driver, if required */
 		qspi: qspi@4007c000 {
 			compatible = "atmel,sam-qspi";
 			#address-cells = <1>;
@@ -264,6 +255,15 @@
 			#io-channel-cells = <1>;
 		};
 
+		/* TODO: Implement this driver, if required */
+		acc: acc@40044000 {
+			reg = <0x40044000 0x400>;
+			interrupts = <33 0>;
+			peripheral-id = <33>;
+			status = "disabled";
+			label = "ACC";
+		};
+
 		pinctrl@400e0e00 {
 			compatible = "atmel,sam-pinctrl";
 			#address-cells = <1>;
@@ -292,34 +292,12 @@
 				#atmel,pin-cells = <2>;
 			};
 
-			pioc: gpio@400e1200 {
-				compatible = "atmel,sam-gpio";
-				reg = <0x400e1200 0x190>;
-				interrupts = <12 1>;
-				peripheral-id = <12>;
-				label = "PORTC";
-				gpio-controller;
-				#gpio-cells = <2>;
-				#atmel,pin-cells = <2>;
-			};
-
 			piod: gpio@400e1400 {
 				compatible = "atmel,sam-gpio";
 				reg = <0x400e1400 0x190>;
 				interrupts = <16 1>;
 				peripheral-id = <16>;
 				label = "PORTD";
-				gpio-controller;
-				#gpio-cells = <2>;
-				#atmel,pin-cells = <2>;
-			};
-
-			pioe: gpio@400e1600 {
-				compatible = "atmel,sam-gpio";
-				reg = <0x400e1600 0x190>;
-				interrupts = <17 1>;
-				peripheral-id = <17>;
-				label = "PORTE";
 				gpio-controller;
 				#gpio-cells = <2>;
 				#atmel,pin-cells = <2>;
@@ -362,30 +340,6 @@
 			peripheral-id = <34>;
 			status = "disabled";
 			label = "USBHS";
-		};
-
-		gmac: ethernet@40050000 {
-			compatible = "atmel,sam-gmac";
-			reg = <0x40050000 0x4000>;
-			peripheral-id = <39>;
-			interrupts = <39 0>, <66 0>, <67 0>;
-			interrupt-names = "gmac", "q1", "q2";
-			num-queues = <3>;
-			local-mac-address = [00 00 00 00 00 00];
-			label = "GMAC";
-			status = "disabled";
-			/* Default to RMII config */
-			pinctrl-0 = <&pd0a_gmac_gtxck &pd1a_gmac_gtxen
-				     &pd2a_gmac_gtx0 &pd3a_gmac_gtx1
-				     &pd4a_gmac_grxdv &pd5a_gmac_grx0
-				     &pd6a_gmac_grx1 &pd7a_gmac_grxer>;
-
-			mdio: mdio {
-				compatible = "atmel,sam-mdio";
-				label = "MDIO";
-				status = "disabled";
-				pinctrl-0 = <&pd8a_gmac_gmdc &pd9a_gmac_gmdio>;
-			};
 		};
 
 		tc0: tc@4000c000 {
@@ -460,20 +414,6 @@
 			interrupts = <22 0>;
 			peripheral-id = <22>;
 			label = "SSC_0";
-			status = "disabled";
-		};
-
-		hsmci: hsmci@40000000 {
-			compatible = "atmel,sam-sdmmc";
-			reg = <0x40000000 0xec>;
-			interrupts = <18 0>;
-			peripheral-id = <18>;
-			label = "MMC_0";
-			pinctrl-0 = <
-				&pc30a_hsmci_mcda0 &pc31a_hsmci_mcda1
-				&pc26a_hsmci_mcda2 &pc27a_hsmci_mcda3
-				&pd25a_hsmci_mcck &pc28a_hsmci_mccda
-			>;
 			status = "disabled";
 		};
 	};

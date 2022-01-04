@@ -1,6 +1,6 @@
 # Atmel SAM S70 MCU series
 
-# Copyright (c) 2021 RIC Electronics
+# Copyright (c) 2022 RIC Electronics
 # Copyright (c) 2019 Gerson Fernando Budke
 # Copyright (c) 2016 Piotr Mienkowski
 # SPDX-License-Identifier: Apache-2.0
@@ -8,6 +8,33 @@
 choice
 	prompt "Atmel SAMS70 MCU Selection"
 	depends on SOC_SERIES_SAMS70
+
+	config SOC_PART_NUMBER_SAMS70Q21
+		bool "SAMS70Q21"
+
+	config SOC_PART_NUMBER_SAMS70Q20
+		bool "SAMS70Q20"
+
+	config SOC_PART_NUMBER_SAMS70Q19
+		bool "SAMS70Q19"
+
+	config SOC_PART_NUMBER_SAMS70N21
+		bool "SAMS70N21"
+
+	config SOC_PART_NUMBER_SAMS70N20
+		bool "SAMS70N20"
+
+	config SOC_PART_NUMBER_SAMS70N19
+		bool "SAMS70N19"
+
+	config SOC_PART_NUMBER_SAMS70J21
+		bool "SAMS70J21"
+
+	config SOC_PART_NUMBER_SAMS70J20
+		bool "SAMS70J20"
+
+	config SOC_PART_NUMBER_SAMS70J19
+		bool "SAMS70J19"
 
 	config SOC_PART_NUMBER_SAMS70Q21B
 		bool "SAMS70Q21B"
