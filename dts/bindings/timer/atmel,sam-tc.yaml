@@ -55,6 +55,13 @@ properties:
         the driver to count events generated on the TIOA, TIOB signal connected
         to the external pin.
 
+    reg-rc:
+      type: int
+      required: false
+      description: |
+        Initial value for the rc register. The function of this depends on how
+        the CMR register is configured.
+
     pinctrl-0:
       type: phandles
       required: false
