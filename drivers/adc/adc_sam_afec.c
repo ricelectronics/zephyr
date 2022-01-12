@@ -105,8 +105,7 @@ static int adc_sam_channel_setup(const struct device *dev,
 	}
 
 	if (channel_cfg->differential) {
-		LOG_ERR("Differential input is not supported");
-		return -EINVAL;
+		afec->AFEC_DIFFR |= (1 << channel_id);
 	}
 
 	/* Set single ended channels to unsigned and differential channels
