@@ -68,6 +68,72 @@ struct adc_sam_cfg {
 #define DEV_DATA(dev) \
 	((struct adc_sam_data *)(dev)->data)
 
+#ifdef CONFIG_ADC_CALIBRATION
+
+static float adc_sam_gain_error(const struct adc_calibration *calibration)
+{
+	// Calculate the gain error
+	float err;
+	if (calibration->signed_format) {
+		err = 	(float)((int16_t)calibration->actual.a - (int16_t)calibration->actual.b) /
+			(float)((int16_t)calibration->ideal.a - (int16_t)calibration->ideal.b);
+	}
+	else
+	{
+		err = 	(float)(calibration->actual.a - calibration->actual.b) /
+			(float)(calibration->ideal.a - calibration->ideal.b);
+	}
+
+	return err;
+}
+
+static float adc_sam_offset_error(const struct adc_calibration *calibration) {
+	// Gain error
+	float Eg = adc_sam_gain_error(calibration);
+	float Eo;
+
+	if (calibration->signed_format) {
+		Eo = ((int16_t)calibration->actual.a - (int16_t)calibration->ideal.a)*Eg;
+	}
+	else
+	{
+		Eo = (calibration->actual.a - calibration->ideal.a)*Eg;
+	}
+
+	return Eo;
+}
+
+static int adc_sam_channel_calibration(const struct device *dev, const struct adc_channel_cfg *channel_cfg, const struct adc_calibration *calibration)
+{
+	const struct adc_sam_cfg * const cfg = DEV_CFG(dev);
+	Afec *const afec = cfg->regs;
+
+	// 1 - calc offset and gain corrections for channel
+	float offset_corr = -adc_sam_offset_error(calibration);
+	float Eg = adc_sam_gain_error(calibration);
+	float gain_corr = 32768.0/Eg;
+	LOG_INF("gain corr: %f", gain_corr);
+
+	uint16_t g_corr = (uint16_t)gain_corr;
+	uint16_t o_corr = (uint16_t)offset_corr;
+
+	// 2 - select channel to perform opperations on
+	afec->AFEC_CSELR = channel_cfg->channel_id;
+	afec->AFEC_COSR = AFEC_COSR_CSEL;
+
+	// 3 write offset and gain error correction values to
+	afec->AFEC_CVR = (uint32_t)(g_corr << 16) | o_corr;
+
+	// 4 - enable error corrections
+	afec->AFEC_CECR |= BIT(channel_cfg->channel_id);
+
+	// TODO: Single ended  channels can also be ofset compensated with internal dac in AFEC_COCR reg
+
+	return 0;
+}
+
+#endif
+
 static int adc_sam_channel_setup(const struct device *dev,
 				 const struct adc_channel_cfg *channel_cfg)
 {
@@ -113,6 +179,12 @@ static int adc_sam_channel_setup(const struct device *dev,
 	 */
 	afec->AFEC_EMR &= ~(AFEC_EMR_SIGNMODE(
 			  AFEC_EMR_SIGNMODE_SE_UNSG_DF_SIGN_Val));
+
+	#ifdef CONFIG_ADC_CALIBRATION
+	if (channel_cfg->calibration_data) {
+		return adc_sam_channel_calibration(dev, channel_cfg, channel_cfg->calibration_data);
+	}
+	#endif
 
 	return 0;
 }
