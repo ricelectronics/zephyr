@@ -34,6 +34,12 @@ config ADC_ASYNC
 	help
 	  This option enables the asynchronous API calls.
 
+config ADC_CALIBRATION
+	bool "Enable hardware specific calibration support"
+	help
+	  Some devices have builtin gain and offset correction. This
+	  option enables support for it if the driver supports it.
+
 module = ADC
 module-str = ADC
 source "subsys/logging/Kconfig.template.log_config"
