@@ -185,7 +185,9 @@ static int check_buffer_size(const struct adc_sequence *sequence,
 static int start_read(const struct device *dev,
 		      const struct adc_sequence *sequence)
 {
+	const struct adc_sam_cfg *const cfg = DEV_CFG(dev);
 	struct adc_sam_data *data = DEV_DATA(dev);
+	Afec *const afec = cfg->regs;
 	int error = 0;
 	uint32_t channels = sequence->channels;
 
@@ -200,10 +202,34 @@ static int start_read(const struct device *dev,
 		return -EINVAL;
 	}
 
-	if (sequence->oversampling != 0U) {
-		LOG_ERR("Oversampling is not supported");
-		return -EINVAL;
+	switch (sequence->oversampling)
+	{
+		case 13:
+			/* oversample 4x */
+			afec->AFEC_EMR |= AFEC_EMR_RES(2);
+			break;
+		case 14:
+			/* oversample 16x */
+			afec->AFEC_EMR |= AFEC_EMR_RES(3);
+			break;
+		case 15:
+			/* oversample 64x */
+			afec->AFEC_EMR |= AFEC_EMR_RES(4);
+			break;
+		case 16:
+			/* oversample 256x */
+			afec->AFEC_EMR |= AFEC_EMR_RES(5);
+			break;
+		default:
+			LOG_WRN("ADC oversample resolution %d-bit is not valid. Continue without oversampling", sequence->oversampling);
+			afec->AFEC_EMR = 0;
+			break;
 	}
+
+	// This sets it so only a single trigger is required instead of multiple when oversampling
+#ifdef CONFIG_ADC_SAM_AFEC_SINGLE_TRIG_OS
+	afec->AFEC_EMR |= AFEC_EMR_STM;
+#endif
 
 	if (sequence->resolution != 12U) {
 		/* TODO JKW: Support the Enhanced Resolution Mode 50.6.3 page
@@ -359,7 +385,6 @@ static void adc_sam_isr(const struct device *dev)
 	};								\
 									\
 	static struct adc_sam_data adc##n##_sam_data = {		\
-		ADC_CONTEXT_INIT_TIMER(adc##n##_sam_data, ctx),		\
 		ADC_CONTEXT_INIT_LOCK(adc##n##_sam_data, ctx),		\
 		ADC_CONTEXT_INIT_SYNC(adc##n##_sam_data, ctx),		\
 	};								\
