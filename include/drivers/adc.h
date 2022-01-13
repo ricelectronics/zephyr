@@ -79,6 +79,37 @@ enum adc_reference {
 	ADC_REF_EXTERNAL1, /**< External, input 1. */
 };
 
+
+#ifdef CONFIG_ADC_CALIBRATION
+/**
+ * @brief Structure for specifying a calibration point
+ */
+struct adc_calibration_point {
+	uint16_t a;
+	uint16_t b;
+};
+
+/**
+ * @brief Structure for specifying a calibration data
+ */
+struct adc_calibration {
+
+	/* Ideal value for point a & b */
+	struct adc_calibration_point ideal;
+
+	/* Actual value for point a & b */
+	struct adc_calibration_point actual;
+
+	/**
+	 *  Depending on the type of ADC it could expect data in
+	 *  signed format. This flag indicates that it should be
+	 *  cast to an signed value.
+	 */
+	bool signed_format;
+};
+#endif
+
+
 /**
  * @brief Structure for specifying the configuration of an ADC channel.
  */
@@ -142,6 +173,18 @@ struct adc_channel_cfg {
 	 */
 	uint8_t input_negative;
 #endif /* CONFIG_ADC_CONFIGURABLE_INPUTS */
+
+#ifdef CONFIG_ADC_CALIBRATION
+
+	/**
+	 * Some ADC's have built in hardware for gain and offset correction.
+	 * This usually involves calculating an error between an ideal and actual
+	 * reading. This structure provides an optional way to pass that data to
+	 * driver. It is provided as a pointer since it might not be used for all
+	 * channels, inwhich case NULL can be passed.
+	 */
+	const struct adc_calibration *calibration_data;
+#endif /* CONFIG_ADC_CALIBRATION */
 };
 
 /**
