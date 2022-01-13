@@ -9,3 +9,14 @@ config ADC_SAM_AFEC
 	help
 	  Enable Atmel SAM MCU Family Analog-to-Digital Converter (ADC) driver
 	  based on AFEC module.
+
+if ADC_SAM_AFEC
+
+config ADC_SAM_AFEC_SINGLE_TRIG_OS
+	bool "Single Trigger required to sample"
+	default y
+	depends on ADC_SAM_AFEC
+	help
+	  When enabled only a single trigger is required to obtain a sample when oversampling
+
+endif
