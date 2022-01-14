@@ -30,6 +30,9 @@
 LOG_MODULE_REGISTER(adc_sam_afec);
 
 #define NUM_CHANNELS 12
+#ifdef CONFIG_ADC_DUAL_SAMPLE
+#define NUM_DUAL_SAMPLE_CHANNELS (NUM_CHANNELS / 2)
+#endif
 
 #define CONF_ADC_PRESCALER ((SOC_ATMEL_SAM_MCK_FREQ_HZ / 15000000) - 1)
 
@@ -53,6 +56,10 @@ struct adc_sam_data {
 
 	/* Index of the channel being sampled. */
 	uint8_t channel_id;
+#ifdef CONFIG_ADC_DUAL_SAMPLE
+	/* Only the first 6 channels are used */
+	bool dual_sample[NUM_DUAL_SAMPLE_CHANNELS];
+#endif
 };
 
 struct adc_sam_cfg {
@@ -138,6 +145,9 @@ static int adc_sam_channel_setup(const struct device *dev,
 				 const struct adc_channel_cfg *channel_cfg)
 {
 	const struct adc_sam_cfg * const cfg = DEV_CFG(dev);
+#ifdef CONFIG_ADC_DUAL_SAMPLE
+	struct adc_sam_data *data = DEV_DATA(dev);
+#endif
 	Afec *const afec = cfg->regs;
 
 	uint8_t channel_id = channel_cfg->channel_id;
@@ -173,7 +183,18 @@ static int adc_sam_channel_setup(const struct device *dev,
 	if (channel_cfg->differential) {
 		afec->AFEC_DIFFR |= (1 << channel_id);
 	}
-
+#ifdef CONFIG_ADC_DUAL_SAMPLE
+	if (channel_cfg->dual) {
+		if (channel_id >= NUM_DUAL_SAMPLE_CHANNELS) {
+			LOG_ERR("This channel cannot be used for dual sampling only channels 0 - %d", NUM_DUAL_SAMPLE_CHANNELS-1);
+			return -EINVAL;
+		}
+		afec->AFEC_SHMR |= (1 << channel_id);
+		data->dual_sample[channel_id] = true;
+		// also configure the complementry channel as dual
+		afec->AFEC_SHMR |= (1 << (channel_id+NUM_DUAL_SAMPLE_CHANNELS));
+	}
+#endif
 	/* Set single ended channels to unsigned and differential channels
 	 * to signed conversions.
 	 */
@@ -208,6 +229,12 @@ static void adc_sam_start_conversion(const struct device *dev)
 	 */
 	afec->AFEC_CHER = (1 << data->channel_id);
 
+#ifdef CONFIG_ADC_DUAL_SAMPLE
+	/* also enable the complementry channel when dual sampling */
+	if (data->dual_sample[data->channel_id] == true) {
+		afec->AFEC_CHER |= (1 << (data->channel_id+NUM_DUAL_SAMPLE_CHANNELS));
+	}
+#endif
 	/* Enable the interrupt for the channel. */
 	afec->AFEC_IER = (1 << data->channel_id);
 
@@ -318,6 +345,14 @@ static int start_read(const struct device *dev,
 	while (channels > 0) {
 		if (channels & 1) {
 			++num_active_channels;
+#ifdef CONFIG_ADC_DUAL_SAMPLE
+			/* If dual sampling is enabled for this channel,
+			 * take the complementry channel into account also
+			 */
+			if (data->dual_sample[channel] == true) {
+				++num_active_channels;
+			}
+#endif
 		}
 		channels >>= 1;
 		++channel;
@@ -437,6 +472,24 @@ static void adc_sam_isr(const struct device *dev)
 
 	*data->buffer++ = result;
 	data->channels &= ~BIT(data->channel_id);
+
+#ifdef CONFIG_ADC_DUAL_SAMPLE
+	/* When dual sampling we also need to store the second channel's data
+	 * Only the primary channel triggers an interrupt, but both contain data
+	 *
+	 * Data will be stored in the buffer as follows:
+	 * buf[0] = primary_channel_sample
+	 * buf[1] = secondary channel
+	 */
+	if (data->dual_sample[data->channel_id]) {
+		__ASSERT(NUM_CHANNELS > (data->channel_id+NUM_DUAL_SAMPLE_CHANNELS), "Sample index out of range!");
+		afec->AFEC_CSELR = AFEC_CSELR_CSEL(data->channel_id+NUM_DUAL_SAMPLE_CHANNELS);
+		result = (uint16_t)(afec->AFEC_CDR);
+
+		*data->buffer++ = result;
+		data->channels &= ~BIT(data->channel_id+NUM_DUAL_SAMPLE_CHANNELS);
+	}
+#endif
 
 	if (data->channels) {
 		adc_sam_start_conversion(dev);
