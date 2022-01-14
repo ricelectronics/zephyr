@@ -40,6 +40,12 @@ config ADC_CALIBRATION
 	  Some devices have builtin gain and offset correction. This
 	  option enables support for it if the driver supports it.
 
+config ADC_DUAL_SAMPLE
+	bool "Enable support for simultaneous dual sampling on different channels"
+	help
+	  Some devices support sampling two different channels at the same time.
+	  This option enables dual sampling in drivers that support it.
+
 module = ADC
 module-str = ADC
 source "subsys/logging/Kconfig.template.log_config"
