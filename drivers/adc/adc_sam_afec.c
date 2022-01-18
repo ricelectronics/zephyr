@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2017 comsuisse AG
  * Copyright (c) 2018 Justin Watson
+ * Copyright (c) 2022 RIC Electronics
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -21,9 +22,15 @@
 #include <init.h>
 #include <soc.h>
 #include <drivers/adc.h>
+#ifdef CONFIG_ADC_SAM_AFEC_DMA
+#include <drivers/dma.h>
+#include <drivers/counter.h>
+#endif
 
 #define ADC_CONTEXT_USES_KERNEL_TIMER
 #include "adc_context.h"
+
+#define SAM_DMA_NODE DT_NODELABEL(xdmac)
 
 #define LOG_LEVEL CONFIG_ADC_LOG_LEVEL
 #include <logging/log.h>
@@ -60,6 +67,11 @@ struct adc_sam_data {
 	/* Only the first 6 channels are used */
 	bool dual_sample[NUM_DUAL_SAMPLE_CHANNELS];
 #endif
+#ifdef CONFIG_ADC_SAM_AFEC_DMA
+	struct dma_config dma_cfg;
+	struct dma_block_config dma_blk;
+	const struct device *timer;
+#endif
 };
 
 struct adc_sam_cfg {
@@ -67,6 +79,12 @@ struct adc_sam_cfg {
 	cfg_func_t cfg_func;
 	uint32_t periph_id;
 	struct soc_gpio_pin afec_trg_pin;
+#ifdef CONFIG_ADC_SAM_AFEC_DMA
+	const struct device *dma;
+	uint8_t dma_channel;
+	uint8_t tc;
+	uint8_t trigger_source;
+#endif
 };
 
 #define DEV_CFG(dev) \
@@ -218,13 +236,29 @@ static void adc_sam_start_conversion(const struct device *dev)
 	struct adc_sam_data *data = DEV_DATA(dev);
 	Afec *const afec = cfg->regs;
 
-	data->channel_id = find_lsb_set(data->channels) - 1;
-
-	LOG_DBG("Starting channel %d", data->channel_id);
-
 	/* Disable all channels. */
 	afec->AFEC_CHDR = 0xfff;
 	afec->AFEC_IDR = 0xfff;
+
+#ifdef CONFIG_ADC_SAM_AFEC_DMA
+	/* When DMA is enabled enable all channels in the sequence
+	 * and do not enable the conversion done interrupt.
+	 */
+	afec->AFEC_CHER = data->channels;
+
+	LOG_DBG("Enable all channels in sequence %x", data->channels);
+
+	/* When trigger source is a timer, start the timer */
+	if (data->timer)
+	{
+		counter_start(data->timer);
+	}
+
+	dma_start(cfg->dma, cfg->dma_channel);
+#else
+	data->channel_id = find_lsb_set(data->channels) - 1;
+
+	LOG_DBG("Starting channel %d", data->channel_id);
 
 	/* Enable the ADC channel. This also enables/selects the channel pin as
 	 * an input to the AFEC (50.5.1 SAM E70 datasheet).
@@ -241,7 +275,7 @@ static void adc_sam_start_conversion(const struct device *dev)
 #endif
 	/* Enable the interrupt for the channel. */
 	afec->AFEC_IER = (1 << data->channel_id);
-
+#endif
 	/* Start the conversions. */
 	afec->AFEC_CR = AFEC_CR_START;
 }
@@ -253,9 +287,20 @@ static void adc_sam_start_conversion(const struct device *dev)
 static void adc_context_start_sampling(struct adc_context *ctx)
 {
 	struct adc_sam_data *data = CONTAINER_OF(ctx, struct adc_sam_data, ctx);
+	const struct adc_sam_cfg *cfg = DEV_CFG(data->dev);
 
 	data->channels = ctx->sequence.channels;
+	data->repeat_buffer = data->buffer;
 
+#ifdef CONFIG_ADC_SAM_AFEC_DMA
+	LOG_DBG("Configure %s channel %d for %s",
+		cfg->dma->name, cfg->dma_channel, data->dev->name);
+	data->buffer = ctx->sequence.buffer;
+	data->dma_blk.block_size = ctx->sequence.buffer_size;
+	data->dma_blk.dest_address = (uint32_t)data->buffer;
+	dma_config(cfg->dma, cfg->dma_channel, &data->dma_cfg);
+
+#endif
 	adc_sam_start_conversion(data->dev);
 }
 
@@ -399,10 +444,28 @@ static int adc_sam_read(const struct device *dev,
 	return error;
 }
 
+#ifdef CONFIG_ADC_SAM_AFEC_DMA
+static void adc_sam_dma_callback(const struct device *dma, void *callback_arg,
+			     uint32_t channel, int error_code)
+{
+	struct device *dev = (struct device *)callback_arg;
+	struct adc_sam_data *data = DEV_DATA(dev);
+	const struct adc_sam_cfg *const cfg = DEV_CFG(data->dev);
+
+	/* Stop the timer if it is the trigger source */
+	if (data->timer)
+	{
+		counter_stop(data->timer);
+	}
+	adc_context_on_sampling_done(&data->ctx, dev);
+}
+#endif
+
 static int adc_sam_init(const struct device *dev)
 {
 	const struct adc_sam_cfg *const cfg = DEV_CFG(dev);
 	struct adc_sam_data *data = DEV_DATA(dev);
+	data->timer = NULL;
 	Afec *const afec = cfg->regs;
 
 	/* Reset the AFEC. */
@@ -417,6 +480,52 @@ static int adc_sam_init(const struct device *dev)
 		      | AFEC_MR_ONE
 		      | AFEC_MR_USEQ_NUM_ORDER;
 
+#ifdef CONFIG_ADC_SAM_AFEC_DMA
+	__ASSERT(cfg->trigger_source != 0,
+		"When DMA is enabled software triggering is not supported");
+	__ASSERT(cfg->trigger_source <= 6 ,
+		"Invalid trigger source, valid range is 0 - 6");
+	/* Enable hardware trigger */
+	afec->AFEC_MR |= AFEC_MR_TRGEN_EN;
+	afec->AFEC_MR |= AFEC_MR_TRGSEL(cfg->trigger_source);
+
+	/* If a timer is the trigger source, enable it now */
+	if (cfg->trigger_source == 1 ||
+	    cfg->trigger_source == 2 ||
+	    cfg->trigger_source == 3)
+	{
+		switch (cfg->tc) {
+			case 0:
+				data->timer = device_get_binding("TC0");
+				break;
+			case 1:
+				data->timer = device_get_binding("TC1");
+				break;
+			case 2:
+				data->timer = device_get_binding("TC2");
+				break;
+			case 3:
+				data->timer = device_get_binding("TC3");
+				break;
+			default:
+				if (cfg->tc == 0xFF)
+				{
+					LOG_ERR("No timer counter has been configured to trigger conversions!",
+						cfg->tc);
+					return -EINVAL;
+				}
+				else {
+					LOG_ERR("timer counter %d does not exist! Valid range is 0 - 3",
+						cfg->tc);
+					return -EINVAL;
+				}
+		}
+
+		if (!device_is_ready(data->timer)) {
+			LOG_ERR("Error configuring timer device tc%d", cfg->tc);
+		}
+	}
+#endif
 	/* Set all channels CM voltage to Vrefp/2 (512). */
 	for (int i = 0; i < NUM_CHANNELS; i++) {
 		afec->AFEC_CSELR = i;
@@ -434,6 +543,58 @@ static int adc_sam_init(const struct device *dev)
 
 	data->dev = dev;
 
+#ifdef CONFIG_ADC_SAM_AFEC_DMA
+	struct dma_block_config dma_blk = {
+		.source_address = (uint32_t)&(afec->AFEC_LCDR),
+		.source_addr_adj = DMA_ADDR_ADJ_NO_CHANGE,
+		.dest_addr_adj = DMA_ADDR_ADJ_INCREMENT
+		/* block size and address to be filled when transfer is initiated */
+	};
+	data->dma_blk = dma_blk;
+
+	struct dma_config dma_cfg = {
+		.channel_direction = PERIPHERAL_TO_MEMORY,
+		.complete_callback_en = 1,
+#ifdef CONFIG_ADC_SAM_AFEC_TAG_CHANNEL
+		/* When using the tagged option the sample size
+		 * is 32-bits to include the channel tag
+		 */
+		.source_data_size = 4,
+		.dest_data_size = 4,
+#else
+		.source_data_size = 2,
+		.dest_data_size = 2,
+#endif
+		.source_burst_length = 1,
+		.dest_burst_length = 1,
+		.block_count = 1,
+		.head_block = &data->dma_blk,
+		.user_data = (void *)dev,
+		.dma_callback = adc_sam_dma_callback,
+	};
+
+	/* Determine the dma slot based on which instance of
+	 * device this is
+	 */
+	if (cfg->periph_id == ID_AFEC0) {
+		dma_cfg.dma_slot = XDMAC_CC_PERID_AFEC0_Val;
+	}
+	else if (cfg->periph_id == ID_AFEC1) {
+		dma_cfg.dma_slot = XDMAC_CC_PERID_AFEC1_Val;
+	}
+	else {
+		__ASSERT_MSG_INFO("AFEC has an invalid peripheral ID!");
+		return -EINVAL;
+	}
+
+	data->dma_cfg = dma_cfg;
+
+#ifdef CONFIG_ADC_SAM_AFEC_TAG_CHANNEL
+	/* Tag each transfer with the channel number */
+	afec->AFEC_EMR |= AFEC_EMR_TAG;
+#endif
+
+#endif
 	adc_context_unlock_unconditionally(&data->ctx);
 
 	return 0;
@@ -507,6 +668,16 @@ static void adc_sam_isr(const struct device *dev)
 	}
 }
 
+#ifdef CONFIG_ADC_SAM_AFEC_DMA
+#define ADC_SAM_DMA_CONFIG(n)						\
+	.dma = DEVICE_DT_GET(SAM_DMA_NODE),				\
+	.dma_channel = DT_INST_PROP_OR(n, dma_channel, 0),		\
+	.tc = DT_INST_PROP_OR(n, tc, 0xFF),				\
+	.trigger_source = DT_INST_PROP_OR(n, trigger_source, 0),
+#else
+#define ADC_SAM_DMA_CONFIG(n)
+#endif
+
 #define ADC_SAM_INIT(n)							\
 	static void adc##n##_sam_cfg_func(const struct device *dev);	\
 									\
@@ -515,6 +686,7 @@ static void adc_sam_isr(const struct device *dev)
 		.cfg_func = adc##n##_sam_cfg_func,			\
 		.periph_id = DT_INST_PROP(n, peripheral_id),		\
 		.afec_trg_pin = ATMEL_SAM_DT_INST_PIN(n, 0),		\
+		ADC_SAM_DMA_CONFIG(n)					\
 	};								\
 									\
 	static struct adc_sam_data adc##n##_sam_data = {		\
