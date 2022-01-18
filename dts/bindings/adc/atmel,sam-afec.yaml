@@ -31,5 +31,51 @@ properties:
         For example the I2C on SAME7x would be
            pinctrl-0 = <&pa8b_afec0_adtrg>;
 
+    dma-channel:
+      type: int
+      required: false
+      description: |
+        Select the DMA channel to use. The hardware supports a total
+        of 24 different channels. Make sure there are no conflicts
+        with other drivers.
+
+        Currently when DMA is enabled a hardware trigger source must be
+        setup. See trigger-source below.
+
+    trigger-source:
+      type: int
+      required: false
+      default: 0
+      enum:
+        - 0 # Software driven
+        - 1 # TIOA output of Timer Counter channel 0 for AFEC0
+            # TIOA output of Timer Counter channel 3 for AFEC1
+        - 2 # TIOA output of Timer Counter channel 1 for AFEC0
+            # TIOA output of Timer Counter channel 4 for AFEC1
+        - 3 # TIOA output of Timer Counter channel 2 for AFEC0
+            # TIOA output of Timer Counter channel 5 for AFEC1
+        - 4 # PWM0 event line 0 for AFEC0
+            # PWM1 event line 0 for AFEC1
+        - 5 # PWM0 event line 1 for AFEC0
+            # PWM1 event line 1 for AFEC1
+        - 6 # Analog Comparator
+      description: |
+        The trigger source of the ADC conversions. If a hardware
+        source is selected, the hardware pheripheral will need
+        to be setup separately to generate the event. This driver
+        only configures the AFEC side. Please refer to the
+        datasheet for more information. Also note that only the
+        timer has been tested as a trigger source.
+
+    tc:
+      type: int
+      required: false
+      description: |
+        When trigger-source 1, 2 or 3 is configured then this
+        value indicate the timer counter that will be started
+        and stopped by the driver to generate the trigger
+        events required for conversions. e.g
+        tc = <0> indicate tc0 will be used.
+
 io-channel-cells:
     - input
