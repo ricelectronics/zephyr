@@ -393,12 +393,22 @@ static void cb_handler_tx(struct modbus_context *ctx)
 				   cfg->uart_buf_ctr);
 		cfg->uart_buf_ctr -= n;
 		cfg->uart_buf_ptr += n;
-	} else {
-		/* Disable transmission */
-		cfg->uart_buf_ptr = &cfg->uart_buf[0];
-		modbus_serial_tx_off(ctx);
-		modbus_serial_rx_on(ctx);
+		return;
 	}
+
+	/* Must wait till the transmission is complete or
+	 * tranceiver could be disabled before all data has
+	 * been transmitted and message will be corrupted.
+	 */
+	if (!uart_irq_tx_complete(cfg->dev)) {
+		return;
+	}
+
+	modbus_serial_tx_off(ctx);
+	modbus_serial_rx_on(ctx);
+
+	/* Disable transmission */
+	cfg->uart_buf_ptr = &cfg->uart_buf[0];
 }
 
 static void uart_cb_handler(const struct device *dev, void *app_data)
