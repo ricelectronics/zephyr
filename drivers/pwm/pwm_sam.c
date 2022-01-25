@@ -60,35 +60,46 @@ static int sam_pwm_pin_set(const struct device *dev, uint32_t ch,
 		return -ENOTSUP;
 	}
 
-	/* Select clock A */
-	pwm->PWM_CH_NUM[ch].PWM_CMR = PWM_CMR_CPRE_CLKA_Val;
+	/* Disable write protection */
+	pwm->PWM_WPCR = PWM_WPCR_WPCMD_DISABLE_SW_PROT;
 
-	/* Update period and pulse using the update registers, so that the
-	 * change is triggered at the next PWM period.
-	 */
-	pwm->PWM_CH_NUM[ch].PWM_CPRDUPD = period_cycles;
-	pwm->PWM_CH_NUM[ch].PWM_CDTYUPD = pulse_cycles;
+	if (pwm->PWM_SR & (1 << ch)) {
+		/* The channel has alreay been enabled use the update registers*/
+		pwm->PWM_CH_NUM[ch].PWM_CPRDUPD = period_cycles;
+		pwm->PWM_CH_NUM[ch].PWM_CDTYUPD = pulse_cycles;
+	} else {
+		/* Select clock A */
+		pwm->PWM_CH_NUM[ch].PWM_CMR = PWM_CMR_CPRE_CLKA_Val;
 
-	/* Enable the output */
-	pwm->PWM_ENA = 1 << ch;
+		/* Set initial values */
+		pwm->PWM_CH_NUM[ch].PWM_CPRD = period_cycles;
+		pwm->PWM_CH_NUM[ch].PWM_CDTY = pulse_cycles;
+
+		pwm->PWM_ENA = 1 << ch;
+	}
+
+	/* Enable write protection again */
+	pwm->PWM_WPCR = PWM_WPCR_WPCMD_ENABLE_SW_PROT;
 
 	return 0;
 }
 
 static int sam_pwm_init(const struct device *dev)
 {
-	Pwm *const pwm = DEV_CFG(dev)->regs;
-	uint32_t id = DEV_CFG(dev)->id;
-	uint8_t prescaler = DEV_CFG(dev)->prescaler;
-	uint8_t divider = DEV_CFG(dev)->divider;
+	const struct sam_pwm_config *cfg = DEV_CFG(dev);
+	Pwm *const pwm = cfg->regs;
 
-	/* FIXME: way to validate prescaler & divider */
+	/* Disable write protection */
+	pwm->PWM_WPCR = PWM_WPCR_WPCMD_DISABLE_SW_PROT;
 
 	/* Enable the PWM peripheral */
-	soc_pmc_peripheral_enable(id);
+	soc_pmc_peripheral_enable(cfg->id);
 
 	/* Configure the clock A that will be used by all 4 channels */
-	pwm->PWM_CLK = PWM_CLK_PREA(prescaler) | PWM_CLK_DIVA(divider);
+	pwm->PWM_CLK = PWM_CLK_PREA(cfg->prescaler) | PWM_CLK_DIVA(cfg->divider);
+
+	/* Enable write protection again */
+	pwm->PWM_WPCR = PWM_WPCR_WPCMD_ENABLE_SW_PROT;
 
 	return 0;
 }
