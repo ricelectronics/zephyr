@@ -29,8 +29,9 @@
 #include <device.h>
 #include <init.h>
 #include <soc.h>
-#include <drivers/counter.h>
-
+#ifdef CONFIG_COUNTER_SAM_TC_CAPTURE
+#include <drivers/counter/sam_tc.h>
+#endif
 #include <logging/log.h>
 LOG_MODULE_REGISTER(counter_sam_tc, CONFIG_COUNTER_LOG_LEVEL);
 
@@ -314,6 +315,23 @@ static void counter_sam_tc_isr(const struct device *dev)
 		}
 	}
 }
+
+#ifdef CONFIG_COUNTER_SAM_TC_CAPTURE
+/* Note: The following flags should be set in the TC_CMR channel register:
+ * TC_CMR_LDRA_RISING && TC_CMR_ETRGEDG_RISING OR
+ * TC_CMR_LDRA_FALLING && TC_CMR_ETRGEDG_FALLING
+ *
+ * Doing so will ensure TC_RA has the period
+ */
+int sam_counter_read_capture(const struct device *dev, uint16_t *period)
+{
+	const struct counter_sam_dev_cfg *const dev_cfg = DEV_CFG(dev);
+	Tc *const tc = dev_cfg->regs;
+	TcChannel *tc_ch = &tc->TcChannel[dev_cfg->tc_chan_num];
+	*period = tc_ch->TC_RA;
+	return 0;
+}
+#endif
 
 static int counter_sam_initialize(const struct device *dev)
 {
