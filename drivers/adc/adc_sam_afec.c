@@ -70,7 +70,6 @@ struct adc_sam_data {
 #ifdef CONFIG_ADC_SAM_AFEC_DMA
 	struct dma_config dma_cfg;
 	struct dma_block_config dma_blk;
-	const struct device *timer;
 #endif
 };
 
@@ -82,8 +81,10 @@ struct adc_sam_cfg {
 #ifdef CONFIG_ADC_SAM_AFEC_DMA
 	const struct device *dma;
 	uint8_t dma_channel;
-	uint8_t tc;
 	uint8_t trigger_source;
+#endif
+#ifdef CONFIG_ADC_SAM_AFEC_DMA_TIM_TIG
+	const struct device *tc;
 #endif
 };
 
@@ -248,12 +249,13 @@ static void adc_sam_start_conversion(const struct device *dev)
 
 	LOG_DBG("Enable all channels in sequence %x", data->channels);
 
+#ifdef CONFIG_ADC_SAM_AFEC_DMA_TIM_TIG
 	/* When trigger source is a timer, start the timer */
-	if (data->timer)
+	if (cfg->tc)
 	{
-		counter_start(data->timer);
+		counter_start(cfg->tc);
 	}
-
+#endif
 	dma_start(cfg->dma, cfg->dma_channel);
 #else
 	data->channel_id = find_lsb_set(data->channels) - 1;
@@ -452,11 +454,13 @@ static void adc_sam_dma_callback(const struct device *dma, void *callback_arg,
 	struct adc_sam_data *data = DEV_DATA(dev);
 	const struct adc_sam_cfg *const cfg = DEV_CFG(data->dev);
 
+#ifdef CONFIG_ADC_SAM_AFEC_DMA_TIM_TIG
 	/* Stop the timer if it is the trigger source */
-	if (data->timer)
+	if (cfg->tc)
 	{
-		counter_stop(data->timer);
+		counter_stop(cfg->tc);
 	}
+#endif
 	adc_context_on_sampling_done(&data->ctx, dev);
 }
 #endif
@@ -465,7 +469,6 @@ static int adc_sam_init(const struct device *dev)
 {
 	const struct adc_sam_cfg *const cfg = DEV_CFG(dev);
 	struct adc_sam_data *data = DEV_DATA(dev);
-	data->timer = NULL;
 	Afec *const afec = cfg->regs;
 
 	/* Reset the AFEC. */
@@ -488,43 +491,6 @@ static int adc_sam_init(const struct device *dev)
 	/* Enable hardware trigger */
 	afec->AFEC_MR |= AFEC_MR_TRGEN_EN;
 	afec->AFEC_MR |= AFEC_MR_TRGSEL(cfg->trigger_source);
-
-	/* If a timer is the trigger source, enable it now */
-	if (cfg->trigger_source == 1 ||
-	    cfg->trigger_source == 2 ||
-	    cfg->trigger_source == 3)
-	{
-		switch (cfg->tc) {
-			case 0:
-				data->timer = device_get_binding("TC0");
-				break;
-			case 1:
-				data->timer = device_get_binding("TC1");
-				break;
-			case 2:
-				data->timer = device_get_binding("TC2");
-				break;
-			case 3:
-				data->timer = device_get_binding("TC3");
-				break;
-			default:
-				if (cfg->tc == 0xFF)
-				{
-					LOG_ERR("No timer counter has been configured to trigger conversions!",
-						cfg->tc);
-					return -EINVAL;
-				}
-				else {
-					LOG_ERR("timer counter %d does not exist! Valid range is 0 - 3",
-						cfg->tc);
-					return -EINVAL;
-				}
-		}
-
-		if (!device_is_ready(data->timer)) {
-			LOG_ERR("Error configuring timer device tc%d", cfg->tc);
-		}
-	}
 #endif
 	/* Set all channels CM voltage to Vrefp/2 (512). */
 	for (int i = 0; i < NUM_CHANNELS; i++) {
@@ -668,11 +634,18 @@ static void adc_sam_isr(const struct device *dev)
 	}
 }
 
+#ifdef CONFIG_ADC_SAM_AFEC_DMA_TIM_TIG
+#define ADC_SAM_CFG_TIMER(n)						\
+	.tc = DEVICE_DT_GET(DT_INST_PHANDLE(n, tc)),
+#else
+#define ADC_SAM_CFG_TIMER(n)
+#endif
+
 #ifdef CONFIG_ADC_SAM_AFEC_DMA
 #define ADC_SAM_DMA_CONFIG(n)						\
 	.dma = DEVICE_DT_GET(SAM_DMA_NODE),				\
+	ADC_SAM_CFG_TIMER(n)						\
 	.dma_channel = DT_INST_PROP_OR(n, dma_channel, 0),		\
-	.tc = DT_INST_PROP_OR(n, tc, 0xFF),				\
 	.trigger_source = DT_INST_PROP_OR(n, trigger_source, 0),
 #else
 #define ADC_SAM_DMA_CONFIG(n)

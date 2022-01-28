@@ -68,14 +68,11 @@ properties:
         timer has been tested as a trigger source.
 
     tc:
-      type: int
+      type: phandle
       required: false
       description: |
         When trigger-source 1, 2 or 3 is configured then this
-        value indicate the timer counter that will be started
-        and stopped by the driver to generate the trigger
-        events required for conversions. e.g
-        tc = <0> indicate tc0 will be used.
+        is the phandle of the timer used for triggering.
 
 io-channel-cells:
     - input

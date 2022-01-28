@@ -37,6 +37,14 @@ config ADC_SAM_AFEC_TAG_CHANNEL
 	  adc_read_async(adc0, &seq, &signal);
 	  SCB_InvalidateDCache_by_Addr(buffer, sizeof(buffer));
 
+config ADC_SAM_AFEC_DMA_TIM_TIG
+	bool "Use the timer for a hardware trigger"
+	depends on DMA
+	help
+	  When enabled DMA will use the timer for the hardware trigger.
+	  The trigger-source still needs to be set in the device tree
+	  as there are different timers and channels.
+
 config ADC_SAM_AFEC_SINGLE_TRIG_OS
 	bool "Single Trigger required to sample"
 	default y
