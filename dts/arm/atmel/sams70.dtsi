@@ -356,18 +356,37 @@
 			label = "USBHS";
 		};
 
-		tc0: tc@4000c000 {
+		tc0_ch0: tc@4000c000 {
 			compatible = "atmel,sam-tc";
-			reg = <0x4000c000 0x100>;
-			interrupts = <23 0
-				      24 0
-				      25 0>;
-			peripheral-id = <23 24 25>;
+			reg = <0x4000c000 0x40>;
+			interrupts = <23 0>;
+			peripheral-id = <23>;
 			status = "disabled";
-			label = "TC0";
+			label = "TC0_CH0";
 			pinctrl-0 = <>;
 		};
 
+		tc0_ch1: tc@4000c040 {
+			compatible = "atmel,sam-tc";
+			reg = <0x4000c040 0x40>;
+			interrupts = <24 0>;
+			peripheral-id = <24>;
+			status = "disabled";
+			label = "TC0_CH1";
+			pinctrl-0 = <>;
+		};
+
+		tc0_ch2: tc@4000c080 {
+			compatible = "atmel,sam-tc";
+			reg = <0x4000c080 0x40>;
+			interrupts = <25 0>;
+			peripheral-id = <25>;
+			status = "disabled";
+			label = "TC0_CH2";
+			pinctrl-0 = <>;
+		};
+
+/*
 		tc1: tc@40010000 {
 			compatible = "atmel,sam-tc";
 			reg = <0x40010000 0x100>;
@@ -403,7 +422,7 @@
 			label = "TC3";
 			pinctrl-0 = <>;
 		};
-
+ */
 		trng: random@40070000 {
 			compatible = "atmel,sam-trng";
 			reg = <0x40070000 0x4000>;

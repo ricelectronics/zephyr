@@ -17,7 +17,7 @@ properties:
       required: true
 
     peripheral-id:
-      type: array
+      type: int
       description: peripheral ID
       required: true
 
