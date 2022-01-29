@@ -31,16 +31,15 @@ properties:
         For example the I2C on SAME7x would be
            pinctrl-0 = <&pa8b_afec0_adtrg>;
 
-    dma-channel:
-      type: int
+    dmas:
       required: false
       description: |
-        Select the DMA channel to use. The hardware supports a total
-        of 24 different channels. Make sure there are no conflicts
-        with other drivers.
+        TX & RX dma specifiers.  Each specifier will have a phandle
+        reference to the dma controller, the channel number, and peripheral
+        trigger source.
 
-        Currently when DMA is enabled a hardware trigger source must be
-        setup. See trigger-source below.
+        For example dmas for TX, RX would look like
+           dmas = <&xdmac 22 DMA_PERID_SSC_TX>, <&xdmac 23 DMA_PERID_SSC_RX>;
 
     trigger-source:
       type: int
