@@ -35,9 +35,6 @@
 LOG_MODULE_REGISTER(adc_sam_afec);
 
 #define NUM_CHANNELS 12
-#ifdef CONFIG_ADC_DUAL_SAMPLE
-#define NUM_DUAL_SAMPLE_CHANNELS (NUM_CHANNELS / 2)
-#endif
 
 #define CONF_ADC_PRESCALER ((SOC_ATMEL_SAM_MCK_FREQ_HZ / 20000000) - 1)
 
@@ -61,10 +58,6 @@ struct adc_sam_data {
 
 	/* Index of the channel being sampled. */
 	uint8_t channel_id;
-#ifdef CONFIG_ADC_DUAL_SAMPLE
-	/* Only the first 6 channels are used */
-	bool dual_sample[NUM_DUAL_SAMPLE_CHANNELS];
-#endif
 #ifdef CONFIG_ADC_SAM_AFEC_DMA
 	struct dma_config dma_cfg;
 	struct dma_block_config dma_blk;
@@ -161,9 +154,6 @@ static int adc_sam_channel_setup(const struct device *dev,
 				 const struct adc_channel_cfg *channel_cfg)
 {
 	const struct adc_sam_cfg * const cfg = DEV_CFG(dev);
-#ifdef CONFIG_ADC_DUAL_SAMPLE
-	struct adc_sam_data *data = DEV_DATA(dev);
-#endif
 	Afec *const afec = cfg->regs;
 
 	uint8_t channel_id = channel_cfg->channel_id;
@@ -199,20 +189,7 @@ static int adc_sam_channel_setup(const struct device *dev,
 	if (channel_cfg->differential) {
 		afec->AFEC_DIFFR |= (1 << channel_id);
 	}
-#ifdef CONFIG_ADC_DUAL_SAMPLE
-	if (channel_cfg->dual) {
-		if (channel_id >= NUM_DUAL_SAMPLE_CHANNELS) {
-			LOG_ERR("This channel cannot be used for dual sampling only channels 0 - %d", NUM_DUAL_SAMPLE_CHANNELS-1);
-			return -EINVAL;
-		}
-		afec->AFEC_SHMR |= (1 << channel_id);
-		data->dual_sample[channel_id] = true;
-		// also configure the complementry channel as dual
-		afec->AFEC_SHMR |= (1 << (channel_id+NUM_DUAL_SAMPLE_CHANNELS));
-	} else {
-		data->dual_sample[channel_id] = false;
-	}
-#endif
+
 	/* Set single ended channels to unsigned and differential channels
 	 * to signed conversions.
 	 */
@@ -243,19 +220,11 @@ static void adc_sam_start_sw_conversion(const struct device *dev)
 	 */
 	afec->AFEC_CHER = (1 << data->channel_id);
 
-#ifdef CONFIG_ADC_DUAL_SAMPLE
-	/* also enable the complementry channel when dual sampling */
-	if (NUM_DUAL_SAMPLE_CHANNELS >= data->channel_id) {
-		if (data->dual_sample[data->channel_id] == true) {
-			afec->AFEC_CHER |= (1 << (data->channel_id+NUM_DUAL_SAMPLE_CHANNELS));
-		}
-	}
-#endif
-	LOG_INF("Enable interrupt");
 	/* Enable the interrupt for the channel. */
 	afec->AFEC_IER = (1 << data->channel_id);
 }
 
+#ifdef CONFIG_ADC_SAM_AFEC_DMA
 static void adc_start_dma_conversion(const struct device *dev)
 {
 	const struct adc_sam_cfg *const cfg = DEV_CFG(dev);
@@ -263,28 +232,26 @@ static void adc_start_dma_conversion(const struct device *dev)
 	Afec *const afec = cfg->regs;
 
 	/* When DMA is enabled enable all channels in the sequence
-	* and do not enable the conversion done interrupt.
-	*/
+	 * and do not enable the conversion done interrupt.
+	 */
 	afec->AFEC_CHER = data->channels;
 
 	LOG_DBG("Enable all channels in sequence %x", data->channels);
 
 	/* When trigger source is a timer, start the timer */
-	if (cfg->tc)
-	{
+	if (cfg->tc) {
 		counter_start(cfg->tc);
 	}
 
 	dma_start(cfg->dma, cfg->dma_channel);
 }
+#endif
 
 static void adc_sam_start_conversion(const struct device *dev)
 {
 	const struct adc_sam_cfg *const cfg = DEV_CFG(dev);
-	struct adc_sam_data *data = DEV_DATA(dev);
 	Afec *const afec = cfg->regs;
 
-	LOG_INF("disable all channels");
 	/* Disable all channels. */
 	afec->AFEC_CHDR = 0xfff;
 	afec->AFEC_IDR = 0xfff;
@@ -309,12 +276,12 @@ static void adc_sam_start_conversion(const struct device *dev)
 static void adc_context_start_sampling(struct adc_context *ctx)
 {
 	struct adc_sam_data *data = CONTAINER_OF(ctx, struct adc_sam_data, ctx);
-	const struct adc_sam_cfg *cfg = DEV_CFG(data->dev);
 
 	data->channels = ctx->sequence.channels;
-//	data->repeat_buffer = data->buffer;
 
 #ifdef CONFIG_ADC_SAM_AFEC_DMA
+	const struct adc_sam_cfg *cfg = DEV_CFG(data->dev);
+
 	if (cfg->dma) {
 		LOG_DBG("Configure %s channel %d for %s",
 			cfg->dma->name, cfg->dma_channel, data->dev->name);
@@ -325,7 +292,6 @@ static void adc_context_start_sampling(struct adc_context *ctx)
 	}
 
 #endif
-	LOG_INF("start conversion...");
 	adc_sam_start_conversion(data->dev);
 }
 
@@ -375,8 +341,12 @@ static int start_read(const struct device *dev,
 		return -EINVAL;
 	}
 
-	switch (sequence->oversampling)
-	{
+	if (sequence->oversampling != 0U) {
+		LOG_ERR("Oversampling is not supported");
+		return -EINVAL;
+	}
+
+	switch(sequence->resolution){
 		case 13:
 			/* oversample 4x */
 			afec->AFEC_EMR |= AFEC_EMR_RES(2);
@@ -394,24 +364,18 @@ static int start_read(const struct device *dev,
 			afec->AFEC_EMR |= AFEC_EMR_RES(5);
 			break;
 		default:
-			LOG_WRN("ADC oversample resolution %d-bit is not valid. Continue without oversampling", sequence->oversampling);
 			afec->AFEC_EMR = 0;
 			break;
 	}
 
-	// This sets it so only a single trigger is required instead of multiple when oversampling
-#ifdef CONFIG_ADC_SAM_AFEC_SINGLE_TRIG_OS
+	/* Only a single trigger is required when no using DMA */
+#ifdef CONFIG_ADC_SAM_AFEC_DMA
+	if (!cfg->dma) {
+		afec->AFEC_EMR |= AFEC_EMR_STM;
+	}
+#else
 	afec->AFEC_EMR |= AFEC_EMR_STM;
 #endif
-
-	if (sequence->resolution != 12U) {
-		/* TODO JKW: Support the Enhanced Resolution Mode 50.6.3 page
-		 * 1544.
-		 */
-		LOG_ERR("ADC resolution value %d is not valid",
-			    sequence->resolution);
-		return -EINVAL;
-	}
 
 	uint8_t num_samples = 0U;
 	uint8_t channel = 0U;
@@ -419,16 +383,6 @@ static int start_read(const struct device *dev,
 	while (channels > 0) {
 		if (channels & 1) {
 			++num_samples;
-#ifdef CONFIG_ADC_DUAL_SAMPLE
-			/* If dual sampling is enabled for this channel,
-			 * take the complementry channel into account also
-			 */
-			if (NUM_DUAL_SAMPLE_CHANNELS >= channel) {
-				if (data->dual_sample[channel] == true) {
-					++num_samples;
-				}
-			}
-#endif
 		}
 		channels >>= 1;
 		++channel;
@@ -450,7 +404,6 @@ static int start_read(const struct device *dev,
 	 * adc_context functions. However, the caller of this function is
 	 * blocked until the results are in.
 	 */
-	 LOG_INF("context start read");
 	adc_context_start_read(&data->ctx, sequence);
 
 	error = adc_context_wait_for_completion(&data->ctx);
@@ -479,8 +432,7 @@ static void adc_sam_dma_callback(const struct device *dma, void *callback_arg,
 	const struct adc_sam_cfg *const cfg = DEV_CFG(data->dev);
 
 	/* Stop the timer if it is the trigger source */
-	if (cfg->tc)
-	{
+	if (cfg->tc) {
 		counter_stop(cfg->tc);
 	}
 
@@ -547,8 +499,8 @@ static int adc_sam_init(const struct device *dev)
 			.complete_callback_en = 1,
 #ifdef CONFIG_ADC_SAM_AFEC_TAG_CHANNEL
 			/* When using the tagged option the sample size
-			* is 32-bits to include the channel tag
-			*/
+			 * is 32-bits to include the channel tag
+			 */
 			.source_data_size = 4,
 			.dest_data_size = 4,
 #else
@@ -616,30 +568,9 @@ static void adc_sam_isr(const struct device *dev)
 
 	afec->AFEC_CSELR = AFEC_CSELR_CSEL(data->channel_id);
 	result = (uint16_t)(afec->AFEC_CDR);
-	LOG_INF("res: %d", result);
 
 	*data->buffer++ = result;
 	data->channels &= ~BIT(data->channel_id);
-
-#ifdef CONFIG_ADC_DUAL_SAMPLE
-	/* When dual sampling we also need to store the second channel's data
-	 * Only the primary channel triggers an interrupt, but both contain data
-	 *
-	 * Data will be stored in the buffer as follows:
-	 * buf[0] = primary_channel_sample
-	 * buf[1] = secondary channel
-	 */
-	if (NUM_DUAL_SAMPLE_CHANNELS >= data->channel_id) {
-		if (data->dual_sample[data->channel_id]) {
-			__ASSERT(NUM_CHANNELS > (data->channel_id+NUM_DUAL_SAMPLE_CHANNELS), "Sample index out of range!");
-			afec->AFEC_CSELR = AFEC_CSELR_CSEL(data->channel_id+NUM_DUAL_SAMPLE_CHANNELS);
-			result = (uint16_t)(afec->AFEC_CDR);
-
-			*data->buffer++ = result;
-			data->channels &= ~BIT(data->channel_id+NUM_DUAL_SAMPLE_CHANNELS);
-		}
-	}
-#endif
 
 	if (data->channels) {
 		adc_sam_start_conversion(dev);
@@ -649,11 +580,11 @@ static void adc_sam_isr(const struct device *dev)
 	}
 }
 
-#define ADC_SAM_GET_TIMER(inst) 					\
+#define ADC_SAM_GET_TIMER(inst)						\
 	COND_CODE_0(DT_INST_PROP_OR(inst, tc, 0), NULL,			\
 	DEVICE_DT_GET(DT_INST_PHANDLE(inst, tc)))
 
-#define ADC_SAM_GET_DMA(inst) 						\
+#define ADC_SAM_GET_DMA(inst)						\
 	COND_CODE_0(DT_INST_PROP_OR(inst, dmas, 0),			\
 	NULL,								\
 	(.dma = DEVICE_DT_GET(DT_INST_DMAS_CTLR_BY_IDX(inst, 0)),	\
@@ -681,6 +612,7 @@ static void adc_sam_isr(const struct device *dev)
 	};								\
 									\
 	static struct adc_sam_data adc##n##_sam_data = {		\
+		ADC_CONTEXT_INIT_TIMER(adc##n##_sam_data, ctx),		\
 		ADC_CONTEXT_INIT_LOCK(adc##n##_sam_data, ctx),		\
 		ADC_CONTEXT_INIT_SYNC(adc##n##_sam_data, ctx),		\
 	};								\

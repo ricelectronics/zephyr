@@ -34,12 +34,12 @@ properties:
     dmas:
       required: false
       description: |
-        TX & RX dma specifiers.  Each specifier will have a phandle
+        DMA specifiers.  Each specifier will have a phandle
         reference to the dma controller, the channel number, and peripheral
         trigger source.
 
-        For example dmas for TX, RX would look like
-           dmas = <&xdmac 22 DMA_PERID_SSC_TX>, <&xdmac 23 DMA_PERID_SSC_RX>;
+        For example dmas for ADC0 channel 0:
+          dmas = <&xdmac 0 DMA_PERID_AFEC0_RX>;
 
     trigger-source:
       type: int
@@ -64,14 +64,20 @@ properties:
         to be setup separately to generate the event. This driver
         only configures the AFEC side. Please refer to the
         datasheet for more information. Also note that only the
-        timer has been tested as a trigger source.
+        timer has been tested as a trigger source. Ther TC channels
+        0-2 are on TC0, 3-5 are on TC1. So those timers have to be
+        used.
 
     tc:
       type: phandle
       required: false
       description: |
         When trigger-source 1, 2 or 3 is configured then this
-        is the phandle of the timer used for triggering.
+        is the phandle of the timer used for triggering. The timer
+        needs to be separately configured to trigger the conversion.
+        For details how to do that refer to the timer driver and
+        datasheet.
+        e.g tc = <&tc0>;
 
 io-channel-cells:
     - input
