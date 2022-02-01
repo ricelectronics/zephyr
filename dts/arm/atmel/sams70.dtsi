@@ -386,43 +386,96 @@
 			pinctrl-0 = <>;
 		};
 
-/*
-		tc1: tc@40010000 {
+		tc1_ch0: tc@40010000 {
 			compatible = "atmel,sam-tc";
-			reg = <0x40010000 0x100>;
-			interrupts = <26 0
-				      27 0
-				      28 0>;
-			peripheral-id = <26 27 28>;
+			reg = <0x40010000 0x40>;
+			interrupts = <26 0>;
+			peripheral-id = <26>;
 			status = "disabled";
-			label = "TC1";
+			label = "TC1_CH0";
 			pinctrl-0 = <>;
 		};
 
-		tc2: tc@40014000 {
+		tc1_ch1: tc@40010040 {
 			compatible = "atmel,sam-tc";
-			reg = <0x40014000 0x100>;
-			interrupts = <47 0
-				      48 0
-				      49 0>;
-			peripheral-id = <47 48 49>;
+			reg = <0x40010040 0x40>;
+			interrupts = <27 0>;
+			peripheral-id = <27>;
 			status = "disabled";
-			label = "TC2";
+			label = "TC1_CH1";
 			pinctrl-0 = <>;
 		};
 
-		tc3: tc@40054000 {
+		tc1_ch2: tc@40010080 {
 			compatible = "atmel,sam-tc";
-			reg = <0x40054000 0x100>;
-			interrupts = <50 0
-				      51 0
-				      52 0>;
-			peripheral-id = <50 51 52>;
+			reg = <0x40010080 0x40>;
+			interrupts = <28 0>;
+			peripheral-id = <28>;
 			status = "disabled";
-			label = "TC3";
+			label = "TC1_CH2";
 			pinctrl-0 = <>;
 		};
- */
+
+		tc2_ch0: tc@40014000 {
+			compatible = "atmel,sam-tc";
+			reg = <0x40014000 0x40>;
+			interrupts = <47 0>;
+			peripheral-id = <47>;
+			status = "disabled";
+			label = "TC2_CH0";
+			pinctrl-0 = <>;
+		};
+
+		tc2_ch1: tc@40014040 {
+			compatible = "atmel,sam-tc";
+			reg = <0x40014040 0x40>;
+			interrupts = <48 0>;
+			peripheral-id = <48>;
+			status = "disabled";
+			label = "TC2_CH1";
+			pinctrl-0 = <>;
+		};
+
+		tc2_ch2: tc@40014080 {
+			compatible = "atmel,sam-tc";
+			reg = <0x40014080 0x40>;
+			interrupts = <49 0>;
+			peripheral-id = <49>;
+			status = "disabled";
+			label = "TC2_CH2";
+			pinctrl-0 = <>;
+		};
+
+		tc3_ch0: tc@40054000 {
+			compatible = "atmel,sam-tc";
+			reg = <0x40054000 0x40>;
+			interrupts = <50 0>;
+			peripheral-id = <50>;
+			status = "disabled";
+			label = "TC3_CH0";
+			pinctrl-0 = <>;
+		};
+
+		tc3_ch1: tc@40054040 {
+			compatible = "atmel,sam-tc";
+			reg = <0x40054040 0x40>;
+			interrupts = <51 0>;
+			peripheral-id = <51>;
+			status = "disabled";
+			label = "TC3_CH1";
+			pinctrl-0 = <>;
+		};
+
+		tc3_ch2: tc@40054080 {
+			compatible = "atmel,sam-tc";
+			reg = <0x40054080 0x40>;
+			interrupts = <52 0>;
+			peripheral-id = <52>;
+			status = "disabled";
+			label = "TC3_CH2";
+			pinctrl-0 = <>;
+		};
+
 		trng: random@40070000 {
 			compatible = "atmel,sam-trng";
 			reg = <0x40070000 0x4000>;
