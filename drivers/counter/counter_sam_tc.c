@@ -316,11 +316,11 @@ static void counter_sam_tc_isr(const struct device *dev)
  *
  * Doing so will ensure TC_RA has the period
  */
-int sam_counter_read_capture(const struct device *dev, uint16_t *period)
+int sam_counter_read_capture(const struct device *dev, uint32_t *period)
 {
 	const struct counter_sam_dev_cfg *const dev_cfg = DEV_CFG(dev);
 	TcChannel *tc_ch = dev_cfg->ch_regs;
-	*period = tc_ch->TC_RA;
+	*period = tc_ch->TC_RB;
 	return 0;
 }
 #endif
