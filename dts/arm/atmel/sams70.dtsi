@@ -64,7 +64,7 @@
 				compatible = "soc-nv-flash";
 				label = "FLASH_E70";
 
-				write-block-size = <16>;
+				write-block-size = <4>;
 				erase-block-size = <8192>;
 			};
 
