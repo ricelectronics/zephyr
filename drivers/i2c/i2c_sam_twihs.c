@@ -211,7 +211,8 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 			write_msg_start(twihs, &dev_data->msg, addr);
 		}
 		/* Wait for the transfer to complete */
-		k_sem_take(&dev_data->sem, K_FOREVER);
+		// Sometimes the interrupt never comes, waiting forever causes a deadlock
+		k_sem_take(&dev_data->sem, K_MSEC(10));
 
 		if (dev_data->msg.twihs_sr > 0) {
 			/* Something went wrong */
