@@ -353,6 +353,7 @@ static bool mbs_fc03_hreg_read(struct modbus_context *ctx)
 
 		/* Get number of bytes needed for response. */
 		num_bytes = (uint8_t)(reg_qty * sizeof(float));
+		reg_qty = reg_qty / 2;
 	}
 
 	/* Number of data bytes + byte count. */
@@ -834,6 +835,7 @@ static bool mbs_fc16_hregs_write(struct modbus_context *ctx)
 	uint16_t reg_qty;
 	uint16_t num_bytes;
 	uint8_t reg_size;
+	bool is_float = false;
 
 	if (ctx->rx_adu.length < request_len) {
 		LOG_ERR("Wrong request length %u", ctx->rx_adu.length);
@@ -861,6 +863,8 @@ static bool mbs_fc16_hregs_write(struct modbus_context *ctx)
 
 		reg_size = sizeof(uint16_t);
 	} else {
+		reg_qty = reg_qty / 2;
+		is_float = true;
 		/* Write floating-point register */
 		if (ctx->mbs_user_cb->holding_reg_wr_fp == NULL) {
 			mbs_exception_rsp(ctx, MODBUS_EXC_ILLEGAL_FC);
@@ -921,6 +925,9 @@ static bool mbs_fc16_hregs_write(struct modbus_context *ctx)
 	/* Assemble response payload */
 	ctx->tx_adu.length = response_len;
 	sys_put_be16(reg_addr, &ctx->tx_adu.data[0]);
+	if (is_float) {
+		reg_qty = reg_qty * 2;
+	}
 	sys_put_be16(reg_qty, &ctx->tx_adu.data[2]);
 
 	return true;
