@@ -352,8 +352,8 @@ static bool mbs_fc03_hreg_read(struct modbus_context *ctx)
 		}
 
 		/* Get number of bytes needed for response. */
-		num_bytes = (uint8_t)(reg_qty * sizeof(float));
 		reg_qty = reg_qty / 2;
+		num_bytes = (uint8_t)(reg_qty * sizeof(float));
 	}
 
 	/* Number of data bytes + byte count. */
