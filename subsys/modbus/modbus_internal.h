@@ -46,6 +46,12 @@
 #define	MODBUS_FC15_COILS_WR			15
 #define	MODBUS_FC16_HOLDING_REGS_WR		16
 
+//TODO: implement this
+//#define MODBUS_FC17_REPORT_SERVER_ID		17
+#define MODBUS_FC20_READ_FILE_RECORD		20
+#define MODBUS_FC21_WRITE_FILE_RECORD		21
+//#define MODBUS_FC24_READ_FIFO_QUEUE		24
+
 /* Diagnostic sub-function codes */
 #define MODBUS_FC08_SUBF_QUERY			0
 #define MODBUS_FC08_SUBF_CLR_CTR		10

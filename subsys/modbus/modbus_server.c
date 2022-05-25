@@ -933,6 +933,170 @@ static bool mbs_fc16_hregs_write(struct modbus_context *ctx)
 	return true;
 }
 
+/*
+ * FC20 (0x14) Read File Record
+ *
+ * Request Payload:
+ *  Function code		1 Byte (0x14)
+ *  Req. Data Length		1 Byte (0x07 to 0xF5)
+ *  Sub-Req. x Refrence Type	1 Byte (0x06)
+ *  Sub-Req. x File Number	2 Bytes (0x0001 to 0xFFFF)
+ *  Sub-Req. x Record Number	2 Bytes (0x0000 to 0x270F)
+ *  Sub-Req. x Record Length	2 Bytes N
+ *  Sub-Req. x+1 ...
+ *
+ * Response Payload:
+ *  Function code         		1 Byte (0x14)
+ *  Resp Data Length (Total Length)     1 Byte (0x07 to 0xF5)
+ *  Sub-Req. x File Resp. Length	1 Byte (0x07 to 0xF5)
+ *  Sub-Req. x Refrence Type		1 Byte (0x06)
+ *  Sub-Req. x Record Data		2 x N Bytes
+ *  Sub-Req. x+1 ...
+ *
+ */
+#ifdef CONFIG_MODBUS_FR_EXTENSIONS
+static bool mbs_fc20_read_file_record(struct modbus_context *ctx)
+{
+	const uint8_t rx_record_len = 7;
+	uint16_t err;
+	uint8_t records = 0;
+	uint16_t num_bytes = 0;
+	uint8_t rx_index = 1;
+	uint8_t tx_index = 1;
+
+	if (0x07 > ctx->rx_adu.length || ctx->rx_adu.length > 0xF5) {
+		LOG_ERR("Wrong request length %d", ctx->rx_adu.length);
+		return false;
+	}
+
+	if ((ctx->rx_adu.length-1) % rx_record_len != 0) {
+		LOG_ERR("Wrong request length %d, must be multiple of 7", ctx->rx_adu.length);
+		return false;
+	}
+
+	records = (ctx->rx_adu.length-1) / rx_record_len;
+
+
+	while (records > 0) {
+		// process a record here
+		uint8_t ref_no = ctx->rx_adu.data[rx_index];
+		if (ref_no != 0x06) {
+			LOG_ERR("Wrong refrence type, must be 06");
+			return false;
+		}
+
+		uint16_t file_no = sys_get_be16(&ctx->rx_adu.data[rx_index+1]);
+		uint16_t record_no = sys_get_be16(&ctx->rx_adu.data[rx_index+3]);
+		uint16_t record_len = sys_get_be16(&ctx->rx_adu.data[rx_index+5]);
+
+		if (record_no > 0x270F) {
+			LOG_ERR("Refrence number out of range");
+			return false;
+		}
+		/* Run the user callback */
+		err = ctx->mbs_user_cb->file_record_read(file_no, record_no, record_len, &ctx->tx_adu.data[tx_index+2]);
+		if (err == 0) {
+			uint8_t len = 1 + record_len*2;
+			ctx->tx_adu.data[tx_index] = len;
+			ctx->tx_adu.data[tx_index+1] = 0x06;
+			tx_index += len + 1;
+			rx_index += rx_record_len;
+			num_bytes += len + 1;
+		}
+		records--;
+	}
+
+	/* Number of data bytes + byte count. */
+	ctx->tx_adu.length = num_bytes + 1;
+	/* Set number of data bytes in response message. */
+	ctx->tx_adu.data[0] = (uint8_t)num_bytes;
+
+	return true;
+}
+
+/*
+ * FC21 (0x15) Write File Record
+ *
+ * Request Payload:
+ *  Function code		1 Byte
+ *  Req. Data Length		1 Byte (0x09 to 0xFB)
+ *  Sub-Req. x Refrence Type	1 Byte (0x06)
+ *  Sub-Req. x File Number	2 Bytes (0x0001 to 0xFFFF)
+ *  Sub-Req. x Record Number	2 Bytes (0x0000 to 0x270F)
+ *  Sub-Req. x Record Length	2 Bytes N
+ *  Sub-Req. x Record Data	2 Bytes N x 2
+ *  Sub-Req. x+1 ...
+ *
+ * Response Payload:
+ *  Function code         	1 Byte (0x15)
+ *  Resp Data Length      	1 Byte (0x09 to 0xFB)
+ *  Sub-Req. x Refrence Type	1 Byte (0x06)
+ *  Sub-Req. x File Number	2 Bytes (0x0001 to 0xFFFF)
+ *  Sub-Req. x Record Number	2 Bytes (0x0000 to 0x270F)
+ *  Sub-Req. x Record Length	2 Bytes N
+ *  Sub-Req. x Record Data	2 x N Bytes
+ *  Sub-Req. x+1 ...
+ *
+ *
+ */
+static bool mbs_fc21_write_file_record(struct modbus_context *ctx)
+{
+	const uint8_t rx_record_len = 7;
+	uint16_t err;
+	uint16_t num_bytes = 0;
+	uint8_t index = 1;
+
+	if (0x07 > ctx->rx_adu.length || ctx->rx_adu.length > 0xF5) {
+		LOG_ERR("Wrong request length %d", ctx->rx_adu.length);
+		return false;
+	}
+
+	while (ctx->rx_adu.length > index) {
+		// process a record here
+		uint8_t ref_no = ctx->rx_adu.data[index];
+		if (ref_no != 0x06) {
+			LOG_ERR("Wrong refrence type, must be 06 but is %x", ref_no);
+			return false;
+		}
+
+		uint16_t file_no = sys_get_be16(&ctx->rx_adu.data[index+1]);
+		uint16_t record_no = sys_get_be16(&ctx->rx_adu.data[index+3]);
+		uint16_t record_len = sys_get_be16(&ctx->rx_adu.data[index+5]);
+
+		if (record_no > 0x270F) {
+			LOG_ERR("Refrence number out of range");
+			return false;
+		}
+
+		if (record_len*2 + index + 7 > ctx->rx_adu.length) {
+			LOG_ERR("incomplete record data");
+			return false;
+		}
+
+		/* Run the user callback */
+		err = ctx->mbs_user_cb->file_record_write(file_no, record_no, record_len, &ctx->rx_adu.data[index+7]);
+		if (err == 0) {
+			uint8_t len = rx_record_len + record_len*2;
+			ctx->tx_adu.data[index] = 0x06;
+			sys_put_be16(file_no, &ctx->tx_adu.data[index+1]);
+			sys_put_be16(record_no, &ctx->tx_adu.data[index+3]);
+			sys_put_be16(record_len, &ctx->tx_adu.data[index+5]);
+			memcpy(&ctx->tx_adu.data[index+7], &ctx->rx_adu.data[index+7], record_len*sizeof(uint16_t));
+
+			index += len;
+			num_bytes += len;
+		}
+	}
+
+	/* Number of data bytes + byte count. */
+	ctx->tx_adu.length = num_bytes + 1;
+	/* Set number of data bytes in response message. */
+	ctx->tx_adu.data[0] = (uint8_t)num_bytes;
+
+	return true;
+}
+#endif
+
 bool modbus_server_handler(struct modbus_context *ctx)
 {
 	bool send_reply = false;
@@ -999,6 +1163,14 @@ bool modbus_server_handler(struct modbus_context *ctx)
 
 	case MODBUS_FC16_HOLDING_REGS_WR:
 		send_reply = mbs_fc16_hregs_write(ctx);
+		break;
+
+	case MODBUS_FC20_READ_FILE_RECORD:
+		send_reply = mbs_fc20_read_file_record(ctx);
+		break;
+
+	case MODBUS_FC21_WRITE_FILE_RECORD:
+		send_reply = mbs_fc21_write_file_record(ctx);
 		break;
 
 	default:

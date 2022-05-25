@@ -71,6 +71,12 @@ config MODBUS_FP_EXTENSIONS
 	help
 	  Enable Floating-Point extensions
 
+config MODBUS_FR_EXTENSIONS
+	bool "File Record extensions"
+	default y
+	help
+	  Enable File Record extentions
+
 config MODBUS_FC08_DIAGNOSTIC
 	bool "Enable FC08 Diagnostic support"
 	depends on MODBUS_SERVER

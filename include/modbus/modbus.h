@@ -358,6 +358,12 @@ struct modbus_user_callbacks {
 
 	/** Floating Point Holding Register write callback */
 	int (*holding_reg_wr_fp)(uint16_t addr, float reg);
+
+	/** Write file record callback for a single record */
+	int (*file_record_write)(uint16_t fileno, uint16_t record, uint16_t len, uint16_t *data);
+
+	/** Read file record callback for a single record */
+	int (*file_record_read)(uint16_t fileno, uint16_t record, uint16_t len, uint16_t *data);
 };
 
 /**
