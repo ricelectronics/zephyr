@@ -69,6 +69,7 @@
 #include "../common/soc_pmc.h"
 #include "../common/soc_gpio.h"
 #include "../common/atmel_sam_dt.h"
+#include "../../../../dts/arm/atmel/dma_atmel_samx7x.h"
 
 /** Processor Clock (HCLK) Frequency */
 #define SOC_ATMEL_SAM_HCLK_FREQ_HZ ATMEL_SAM_DT_CPU_CLK_FREQ_HZ

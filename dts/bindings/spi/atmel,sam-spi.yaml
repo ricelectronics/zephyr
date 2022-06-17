@@ -19,6 +19,16 @@ properties:
       description: peripheral ID
       required: true
 
+    dmas:
+      required: false
+      description: |
+        DMA specifiers.  Each specifier will have a phandle
+        reference to the dma controller, the channel number, and peripheral
+        trigger source.
+
+        For example dmas for ADC0 channel 0:
+          dmas = <&xdmac 0 DMA_PERID_AFEC0_RX>;
+
     pinctrl-0:
       type: phandles
       required: true
