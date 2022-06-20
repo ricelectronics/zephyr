@@ -199,23 +199,31 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 	/* Set number of internal address bytes to 0, not used. */
 	twihs->TWIHS_IADR = 0;
 
+
 	for (int i = 0; i < num_msgs; i++) {
 		dev_data->msg.buf = msgs[i].buf;
 		dev_data->msg.len = msgs[i].len;
 		dev_data->msg.idx = 0U;
 		dev_data->msg.twihs_sr = 0U;
 		dev_data->msg.flags = msgs[i].flags;
+		bool reading = true;
 		if ((msgs[i].flags & I2C_MSG_RW_MASK) == I2C_MSG_READ) {
 			read_msg_start(twihs, &dev_data->msg, addr);
 		} else {
 			write_msg_start(twihs, &dev_data->msg, addr);
+			reading = false;
 		}
+
 		/* Wait for the transfer to complete */
 		// Sometimes the interrupt never comes, waiting forever causes a deadlock
-		k_sem_take(&dev_data->sem, K_MSEC(10));
-
-		if (dev_data->msg.twihs_sr > 0) {
+		int res = k_sem_take(&dev_data->sem, K_MSEC(1));
+		if (dev_data->msg.twihs_sr > 0 || 0 > res) {
 			/* Something went wrong */
+			if (reading) {
+				LOG_ERR("failed to read from bus (%x), sr = %x", addr, dev_data->msg.twihs_sr);
+			} else {
+				LOG_ERR("failed to write to bus (%x), sr = %x", addr, dev_data->msg.twihs_sr);
+			}
 			return -EIO;
 		}
 	}
