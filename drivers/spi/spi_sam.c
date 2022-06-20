@@ -683,32 +683,26 @@ static int spi_sam_init(const struct device *dev)
 
 	int8_t tx_idx = -1;
 	int8_t rx_idx = -1;
-	/* TODO: make DMA optional */
 	if (cfg->dma[0]) {
-		LOG_WRN("dma[0] channel is configured for %s", dev->name);
+		LOG_DBG("dma[0] channel is configured for %s", dev->name);
 		if (cfg->dma_slot[0] == DMA_PERID_SPI0_TX || cfg->dma_slot[0] == DMA_PERID_SPI1_TX) {
-			LOG_WRN("dma[0] channel is configured for TX");
+			LOG_DBG("dma[0] channel is configured for TX");
 			tx_idx = 0;
 		} else if (cfg->dma_slot[0] == DMA_PERID_SPI0_RX || cfg->dma_slot[0] == DMA_PERID_SPI1_RX) {
-			LOG_WRN("dma[0] channel is configured for RX");
+			LOG_DBG("dma[0] channel is configured for RX");
 			rx_idx = 0;
 		}
-
-	} else {
-		LOG_WRN("NO dma[0] channel is configured for %s", dev->name);
 	}
 
 	if (cfg->dma[1]) {
-		LOG_WRN("dma[1] channel is configured for %s", dev->name);
+		LOG_DBG("dma[1] channel is configured for %s", dev->name);
 		if (cfg->dma_slot[1] == DMA_PERID_SPI0_TX || cfg->dma_slot[1] == DMA_PERID_SPI1_TX) {
-			LOG_WRN("dma[1] channel is configured for TX");
+			LOG_DBG("dma[1] channel is configured for TX");
 			tx_idx = 1;
 		} else if (cfg->dma_slot[1] == DMA_PERID_SPI0_RX || cfg->dma_slot[1] == DMA_PERID_SPI1_RX) {
-			LOG_WRN("dma[1] channel is configured for RX");
+			LOG_DBG("dma[1] channel is configured for RX");
 			rx_idx = 1;
 		}
-	} else {
-		LOG_WRN("NO dma[1] channel is configured for %s", dev->name);
 	}
 
 	if (rx_idx != -1) {
