@@ -153,6 +153,8 @@ static int i2c_sam_twihs_configure(const struct device *dev, uint32_t config)
 static void write_msg_start(Twihs *const twihs, struct twihs_msg *msg,
 			    uint8_t daddr)
 {
+	__DSB();
+    	__ISB();
 	/* Set slave address. */
 	twihs->TWIHS_MMR = TWIHS_MMR_DADR(daddr);
 
@@ -216,13 +218,13 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 
 		/* Wait for the transfer to complete */
 		// Sometimes the interrupt never comes, waiting forever causes a deadlock
-		int res = k_sem_take(&dev_data->sem, K_MSEC(1));
+		int res = k_sem_take(&dev_data->sem, K_MSEC(10));
 		if (dev_data->msg.twihs_sr > 0 || 0 > res) {
 			/* Something went wrong */
 			if (reading) {
-				LOG_ERR("failed to read from bus (%x), sr = %x", addr, dev_data->msg.twihs_sr);
+				LOG_ERR("failed to read from bus (%x), sr = %x, e = %d", addr, dev_data->msg.twihs_sr, res);
 			} else {
-				LOG_ERR("failed to write to bus (%x), sr = %x", addr, dev_data->msg.twihs_sr);
+				LOG_ERR("failed to write to bus (%x), sr = %x, e = %d", addr, dev_data->msg.twihs_sr, res);
 			}
 			return -EIO;
 		}
