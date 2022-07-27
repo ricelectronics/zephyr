@@ -56,7 +56,7 @@ manifest:
         - hal
     - name: hal_atmel
       remote: ric
-      revision: 007da70bf3dddc57186988d17d873a467270bcc3
+      revision: 4585ffefe6fbffddf30096bfc1a78af2844deade
       path: modules/hal/atmel
       groups:
         - hal
