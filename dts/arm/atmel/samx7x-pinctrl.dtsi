@@ -92,6 +92,9 @@
 			//&pa13a_qspi_qio0 &pa14a_qspi_qsck &pa11a_qspi_qcs
 			DT_ATMEL_PIN(qspi, qio1, a, 12, a);
 			DT_ATMEL_PIN(qspi, qio0, a, 13, a);
+			DT_ATMEL_PIN(qspi, qio1, a, 12, a);
+			DT_ATMEL_PIN(qspi, qio2, a, 17, a);
+			DT_ATMEL_PIN(qspi, qio3, d, 31, a);
 			DT_ATMEL_PIN(qspi, qsck, a, 14, a);
 			DT_ATMEL_PIN(qspi, qcs, a, 11, a);
 
