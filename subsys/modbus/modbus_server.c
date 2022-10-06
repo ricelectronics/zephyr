@@ -389,28 +389,7 @@ static bool mbs_fc03_hreg_read(struct modbus_context *ctx)
 		}
 
 		if (err != 0) {
-			switch (err) {
-				case -MODBUS_EXC_ILLEGAL_DATA_ADDR: {
-					mbs_exception_rsp(ctx, MODBUS_EXC_ILLEGAL_DATA_ADDR);
-					break;
-				}
-				case -MODBUS_EXC_ILLEGAL_DATA_VAL: {
-					mbs_exception_rsp(ctx, MODBUS_EXC_ILLEGAL_DATA_VAL);
-					break;
-				}
-				case -MODBUS_EXC_ILLEGAL_FC: {
-					mbs_exception_rsp(ctx, MODBUS_EXC_ILLEGAL_FC);
-					break;
-				}
-				case -MODBUS_EXC_SERVER_DEVICE_BUSY: {
-					mbs_exception_rsp(ctx, MODBUS_EXC_SERVER_DEVICE_BUSY);
-					break;
-				}
-				default: {
-					mbs_exception_rsp(ctx, MODBUS_EXC_SERVER_DEVICE_FAILURE);
-					break;
-				}
-			}
+			mbs_exception_rsp(ctx, -err);
 			return true;
 		}
 
@@ -628,28 +607,7 @@ static bool mbs_fc06_hreg_write(struct modbus_context *ctx)
 	err = ctx->mbs_user_cb->holding_reg_wr(reg_addr, reg_val);
 
 	if (err != 0) {
-		switch (err) {
-			case -MODBUS_EXC_ILLEGAL_DATA_ADDR: {
-				mbs_exception_rsp(ctx, MODBUS_EXC_ILLEGAL_DATA_ADDR);
-				break;
-			}
-			case -MODBUS_EXC_ILLEGAL_DATA_VAL: {
-				mbs_exception_rsp(ctx, MODBUS_EXC_ILLEGAL_DATA_VAL);
-				break;
-			}
-			case -MODBUS_EXC_ILLEGAL_FC: {
-				mbs_exception_rsp(ctx, MODBUS_EXC_ILLEGAL_FC);
-				break;
-			}
-			case -MODBUS_EXC_SERVER_DEVICE_BUSY: {
-				mbs_exception_rsp(ctx, MODBUS_EXC_SERVER_DEVICE_BUSY);
-				break;
-			}
-			default: {
-				mbs_exception_rsp(ctx, MODBUS_EXC_SERVER_DEVICE_FAILURE);
-				break;
-			}
-		}
+		mbs_exception_rsp(ctx, -err);
 		return true;
 	}
 
