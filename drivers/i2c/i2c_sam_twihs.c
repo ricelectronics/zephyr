@@ -159,6 +159,7 @@ static void write_msg_start(Twihs *const twihs, struct twihs_msg *msg,
 	twihs->TWIHS_MMR = TWIHS_MMR_DADR(daddr);
 
 	/* Write first data byte on I2C bus */
+	//LOG_WRN("send first byte: %x", msg->buf[msg->idx]);
 	twihs->TWIHS_THR = msg->buf[msg->idx++];
 
 	/* Enable Transmit Ready and Transmission Completed interrupts */
@@ -208,24 +209,26 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 		dev_data->msg.idx = 0U;
 		dev_data->msg.twihs_sr = 0U;
 		dev_data->msg.flags = msgs[i].flags;
-		//bool reading = true;
+		bool reading = true;
 		if ((msgs[i].flags & I2C_MSG_RW_MASK) == I2C_MSG_READ) {
 			read_msg_start(twihs, &dev_data->msg, addr);
 		} else {
 			write_msg_start(twihs, &dev_data->msg, addr);
-			//reading = false;
+			reading = false;
 		}
+
+		//LOG_HEXDUMP_WRN(dev_data->msg.buf, dev_data->msg.len, "i2c_sam_twihs_transfer: ");
 
 		/* Wait for the transfer to complete */
 		// Sometimes the interrupt never comes, waiting forever causes a deadlock
 		int res = k_sem_take(&dev_data->sem, K_MSEC(10));
 		if (dev_data->msg.twihs_sr > 0 || 0 > res) {
 			/* Something went wrong */
-			//if (reading) {
-			//	LOG_ERR("failed to read from bus (%x), sr = %x, e = %d", addr, dev_data->msg.twihs_sr, res);
-			//} else {
-			//	LOG_ERR("failed to write to bus (%x), sr = %x, e = %d", addr, dev_data->msg.twihs_sr, res);
-			//}
+			if (reading) {
+				LOG_ERR("failed to read from bus (%x), sr = %x, e = %d", addr, dev_data->msg.twihs_sr, res);
+			} else {
+				LOG_ERR("failed to write to bus (%x), sr = %x, e = %d", addr, dev_data->msg.twihs_sr, res);
+			}
 			return -EIO;
 		}
 	}
@@ -247,6 +250,7 @@ static void i2c_sam_twihs_isr(const struct device *dev)
 	/* Not Acknowledged */
 	if (isr_status & TWIHS_SR_NACK) {
 		msg->twihs_sr = isr_status;
+		//LOG_WRN("NACK");
 		goto tx_comp;
 	}
 
@@ -258,6 +262,7 @@ static void i2c_sam_twihs_isr(const struct device *dev)
 		if (msg->idx == msg->len - 1U) {
 			/* Send STOP condition */
 			twihs->TWIHS_CR = TWIHS_CR_STOP;
+			LOG_WRN("(rx) Send STOP condition");
 		}
 	}
 
@@ -269,11 +274,14 @@ static void i2c_sam_twihs_isr(const struct device *dev)
 				twihs->TWIHS_CR = TWIHS_CR_STOP;
 				/* Disable Transmit Ready interrupt */
 				twihs->TWIHS_IDR = TWIHS_IDR_TXRDY;
+				LOG_WRN("(tx) Send STOP condition");
+
 			} else {
 				/* Transmission completed */
 				goto tx_comp;
 			}
 		} else {
+			//LOG_WRN("send next byte: %x", msg->buf[msg->idx]);
 			twihs->TWIHS_THR = msg->buf[msg->idx++];
 		}
 	}
