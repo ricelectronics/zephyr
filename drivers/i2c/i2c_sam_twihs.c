@@ -206,12 +206,10 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 		dev_data->msg.idx = 0U;
 		dev_data->msg.twihs_sr = 0U;
 		dev_data->msg.flags = msgs[i].flags;
-		bool reading = true;
 		if ((msgs[i].flags & I2C_MSG_RW_MASK) == I2C_MSG_READ) {
 			read_msg_start(twihs, &dev_data->msg, addr);
 		} else {
 			write_msg_start(twihs, &dev_data->msg, addr);
-			reading = false;
 		}
 
 		/* Wait for the transfer to complete */
@@ -219,11 +217,6 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 		int res = k_sem_take(&dev_data->sem, K_MSEC(100));
 		if (dev_data->msg.twihs_sr > 0 || 0 > res) {
 			/* Something went wrong */
-			if (reading) {
-				LOG_ERR("failed to read from bus (%x), sr = %x, e = %d", addr, dev_data->msg.twihs_sr, res);
-			} else {
-				LOG_ERR("failed to write to bus (%x), sr = %x, e = %d", addr, dev_data->msg.twihs_sr, res);
-			}
 			return -EIO;
 		}
 	}
