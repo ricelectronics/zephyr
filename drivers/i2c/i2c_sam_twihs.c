@@ -155,43 +155,31 @@ static int i2c_sam_twihs_configure(const struct device *dev, uint32_t config)
 	return 0;
 }
 
-static void write_msg_start(const struct device *dev)
+static inline void write_msg_start(Twihs *const twihs, struct i2c_sam_twihs_dev_data *const dev_data, struct i2c_msg * msg)
 {
-	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
-	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
-	Twihs *const twihs = dev_cfg->regs;
-	//if (msg->flags & I2C_MSG_RESTART && msg->len == 1) {
-	//	twihs->TWIHS_MMR = TWIHS_MMR_DADR(daddr);
-	//	twihs->TWIHS_IER = TWIHS_IER_TXRDY | TWIHS_IER_RXRDY | TWIHS_IER_NACK;
-	//	twihs->TWIHS_THR = msg->buf[msg->idx++];
-	//	return;
-	//}
-	/* Set slave address. */
-	//twihs->TWIHS_MMR = TWIHS_MMR_DADR(dev_data->addr);
+	twihs->TWIHS_MMR = TWIHS_MMR_DADR(dev_data->addr);
 
 	/* Write first data byte on I2C bus */
-	//twihs->TWIHS_THR = msg->buf[dev_data->frame_index++];
+	twihs->TWIHS_THR = msg->buf[dev_data->msg_idx++];
 
 	/* Enable Transmit Ready and Transmission Completed interrupts */
-	//twihs->TWIHS_IER = TWIHS_IER_TXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
+	twihs->TWIHS_IER = TWIHS_IER_TXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
 }
 
-static void read_msg_start(Twihs *const twihs, struct twihs_msg *msg,
-			   uint8_t daddr)
+static inline void read_msg_start(Twihs *const twihs, uint8_t len, uint16_t addr)
 {
-	uint32_t twihs_cr_stop;
-
-
-	/* Set slave address and number of internal address bytes */
-	//twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(daddr);
+	twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(addr);
 
 	/* Enable Receive Ready and Transmission Completed interrupts */
-	//twihs->TWIHS_IER = TWIHS_IER_RXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
+	twihs->TWIHS_IER = TWIHS_IER_RXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
 
 	/* In single data byte read the START and STOP must both be set */
-	//twihs_cr_stop = (msg->len == 1U) ? TWIHS_CR_STOP : 0;
-	/* Start the transfer by sending START condition */
-	//twihs->TWIHS_CR = TWIHS_CR_START | twihs_cr_stop;
+	if (len == 1U) {
+		twihs->TWIHS_CR = TWIHS_CR_START | TWIHS_CR_STOP;
+	} else {
+		/* Start the transfer by sending START condition */
+		twihs->TWIHS_CR = TWIHS_CR_START;
+	}
 }
 
 static int i2c_sam_twihs_send_msg(const struct device *dev)
@@ -209,29 +197,9 @@ static int i2c_sam_twihs_send_msg(const struct device *dev)
 	struct i2c_msg * msg = &dev_data->msgs[dev_data->msgs_idx];
 
 	if ((msg->flags & I2C_MSG_RW_MASK) == I2C_MSG_READ) {
-		/* Set slave address and number of internal address bytes */
-		twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(dev_data->addr);
-
-		/* Enable Receive Ready and Transmission Completed interrupts */
-		twihs->TWIHS_IER = TWIHS_IER_RXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
-
-		/* In single data byte read the START and STOP must both be set */
-		if (msg->len == 1U) {
-			//LOG_WRN("start + Stop");
-			twihs->TWIHS_CR = TWIHS_CR_START | TWIHS_CR_STOP;
-		} else {
-			/* Start the transfer by sending START condition */
-			twihs->TWIHS_CR = TWIHS_CR_START;
-		}
+		read_msg_start(twihs, msg->len, dev_data->addr);
 	} else {
-		//read_msg_start(twihs, &dev_data->msg, addr);
-		twihs->TWIHS_MMR = TWIHS_MMR_DADR(dev_data->addr);
-
-		/* Write first data byte on I2C bus */
-		twihs->TWIHS_THR = msg->buf[dev_data->msg_idx++];
-
-		/* Enable Transmit Ready and Transmission Completed interrupts */
-		twihs->TWIHS_IER = TWIHS_IER_TXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
+		write_msg_start(twihs, dev_data, msg);
 	}
 	return 0;
 }
