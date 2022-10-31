@@ -58,14 +58,17 @@ struct twihs_msg {
 	uint32_t twihs_sr;
 	/* Transfer flags as defined in the i2c.h file */
 	uint8_t flags;
-	uint8_t next_addr;
-	uint8_t next_len;
 };
 
 /* Device run time data */
 struct i2c_sam_twihs_dev_data {
 	struct k_sem sem;
-	struct twihs_msg msg;
+	struct i2c_msg *msgs;
+	uint8_t msgs_count;
+	volatile uint8_t msgs_idx;
+	volatile uint8_t msg_idx;
+	uint32_t twihs_sr;
+	uint16_t addr;
 };
 
 #define DEV_NAME(dev) ((dev)->name)
@@ -147,48 +150,30 @@ static int i2c_sam_twihs_configure(const struct device *dev, uint32_t config)
 	twihs->TWIHS_CR = TWIHS_CR_SVDIS;
 
 	/* Enable Master Mode */
-	twihs->TWIHS_CR = TWIHS_CR_MSEN;
+	twihs->TWIHS_CR = TWIHS_CR_MSEN | TWIHS_CR_FIFOEN;
 
 	return 0;
 }
 
-static void write_msg_start(Twihs *const twihs, struct twihs_msg *msg,
-			    uint8_t daddr, uint8_t next_len)
+static void write_msg_start(const struct device *dev)
 {
-	//LOG_WRN("Write message..., addr: %x", daddr);
-
-	if (msg->flags & I2C_MSG_RESTART && msg->len == 1) {
-		twihs->TWIHS_MMR = TWIHS_MMR_IADRSZ(1) | TWIHS_MMR_DADR(daddr);
-		twihs->TWIHS_IADR = msg->buf[msg->idx++];
-		//twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(daddr);
-		twihs->TWIHS_IER = TWIHS_IER_TXRDY | TWIHS_IER_RXRDY | TWIHS_IER_NACK;
-		//twihs->TWIHS_CR = TWIHS_CR_START;
-		msg->next_addr = daddr;
-		msg->next_len = next_len;
-		return;
-	}
+	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
+	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
+	Twihs *const twihs = dev_cfg->regs;
+	//if (msg->flags & I2C_MSG_RESTART && msg->len == 1) {
+	//	twihs->TWIHS_MMR = TWIHS_MMR_DADR(daddr);
+	//	twihs->TWIHS_IER = TWIHS_IER_TXRDY | TWIHS_IER_RXRDY | TWIHS_IER_NACK;
+	//	twihs->TWIHS_THR = msg->buf[msg->idx++];
+	//	return;
+	//}
 	/* Set slave address. */
-	twihs->TWIHS_MMR = TWIHS_MMR_DADR(daddr);
-
-
+	//twihs->TWIHS_MMR = TWIHS_MMR_DADR(dev_data->addr);
 
 	/* Write first data byte on I2C bus */
-	twihs->TWIHS_THR = msg->buf[msg->idx++];
-	LOG_WRN("Write message..., addr: %x (%x), data: %x", daddr, daddr << 1, msg->buf[msg->idx-1]);
-
-	//if (msg->len == 1 && !(msg->flags & I2C_MSG_RESTART)) {
-	//	LOG_WRN("Repeated Start");
-	//	twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(daddr);
-	//	twihs->TWIHS_CR = TWIHS_CR_START;
-	//}
-
+	//twihs->TWIHS_THR = msg->buf[dev_data->frame_index++];
 
 	/* Enable Transmit Ready and Transmission Completed interrupts */
-	if (msg->flags & I2C_MSG_RESTART && msg->len == 1) {
-		twihs->TWIHS_IER = TWIHS_IER_TXRDY | TWIHS_IER_NACK;
-	} else {
-		twihs->TWIHS_IER = TWIHS_IER_TXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
-	}
+	//twihs->TWIHS_IER = TWIHS_IER_TXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
 }
 
 static void read_msg_start(Twihs *const twihs, struct twihs_msg *msg,
@@ -196,43 +181,59 @@ static void read_msg_start(Twihs *const twihs, struct twihs_msg *msg,
 {
 	uint32_t twihs_cr_stop;
 
-	LOG_WRN("Read message..., addr: %x (%x)", daddr, (daddr << 1) + 1);
-
-	//twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(daddr);
-
-	if (msg->flags & I2C_MSG_RESTART) {
-		//return;
-		LOG_WRN("Repeated Start");
-		//uint8_t byte = twihs->TWIHS_RHR;
-		//LOG_WRN("Byte: %x", byte);
-
-		//twihs->TWIHS_IADR = msg->buf[msg->idx++];
-
-		//if (msg->len == 1) {
-		//	twihs->TWIHS_CR = TWIHS_CR_START | TWIHS_CR_STOP;
-		//} else {
-		//	twihs->TWIHS_CR = TWIHS_CR_START;
-		//}
-		twihs->TWIHS_IER = TWIHS_IER_RXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
-		return;
-	}
-
 
 	/* Set slave address and number of internal address bytes */
-	twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(daddr);
+	//twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(daddr);
 
 	/* Enable Receive Ready and Transmission Completed interrupts */
-	twihs->TWIHS_IER = TWIHS_IER_RXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
+	//twihs->TWIHS_IER = TWIHS_IER_RXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
 
 	/* In single data byte read the START and STOP must both be set */
-	//if (msg->len == 1 && !(msg->flags & I2C_MSG_RESTART)) {
-	//	twihs_cr_stop = TWIHS_CR_STOP;
-	//} else {
-	//	twihs_cr_stop = 0;
-	//}
-	twihs_cr_stop = (msg->len == 1U) ? TWIHS_CR_STOP : 0;
+	//twihs_cr_stop = (msg->len == 1U) ? TWIHS_CR_STOP : 0;
 	/* Start the transfer by sending START condition */
-	twihs->TWIHS_CR = TWIHS_CR_START | twihs_cr_stop;
+	//twihs->TWIHS_CR = TWIHS_CR_START | twihs_cr_stop;
+}
+
+static int i2c_sam_twihs_send_msg(const struct device *dev)
+{
+	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
+	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
+	Twihs *const twihs = dev_cfg->regs;
+
+	__ASSERT(dev_data->msgs, "No messages to send");
+	__ASSERT(dev_data->msgs_count > dev_data->msgs_idx, "Message out of range");
+
+	dev_data->msg_idx = 0;
+
+	// Get the first message
+	struct i2c_msg * msg = &dev_data->msgs[dev_data->msgs_idx];
+
+	if ((msg->flags & I2C_MSG_RW_MASK) == I2C_MSG_READ) {
+		/* Set slave address and number of internal address bytes */
+		twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(dev_data->addr);
+
+		/* Enable Receive Ready and Transmission Completed interrupts */
+		twihs->TWIHS_IER = TWIHS_IER_RXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
+
+		/* In single data byte read the START and STOP must both be set */
+		if (msg->len == 1U) {
+			//LOG_WRN("start + Stop");
+			twihs->TWIHS_CR = TWIHS_CR_START | TWIHS_CR_STOP;
+		} else {
+			/* Start the transfer by sending START condition */
+			twihs->TWIHS_CR = TWIHS_CR_START;
+		}
+	} else {
+		//read_msg_start(twihs, &dev_data->msg, addr);
+		twihs->TWIHS_MMR = TWIHS_MMR_DADR(dev_data->addr);
+
+		/* Write first data byte on I2C bus */
+		twihs->TWIHS_THR = msg->buf[dev_data->msg_idx++];
+
+		/* Enable Transmit Ready and Transmission Completed interrupts */
+		twihs->TWIHS_IER = TWIHS_IER_TXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
+	}
+	return 0;
 }
 
 static int i2c_sam_twihs_transfer(const struct device *dev,
@@ -254,44 +255,37 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 	/* Set number of internal address bytes to 0, not used. */
 	twihs->TWIHS_IADR = 0;
 
+	dev_data->msgs = msgs;
+	dev_data->msgs_count = num_msgs;
+	dev_data->msgs_idx = 0;
+	dev_data->addr = addr;
 
-	for (int i = 0; i < num_msgs; i++) {
-		dev_data->msg.buf = msgs[i].buf;
-		dev_data->msg.len = msgs[i].len;
-		dev_data->msg.idx = 0U;
-		dev_data->msg.twihs_sr = 0U;
-		dev_data->msg.flags = msgs[i].flags;
+	while(dev_data->msgs_idx < dev_data->msgs_count) {
+		//struct twihs_msg *msg = &dev_data->msgs[dev_data->idx];
 
-		if ((msgs[i].flags & I2C_MSG_RW_MASK) == I2C_MSG_READ) {
-			LOG_WRN("read %d bytes", msgs[i].len);
-			read_msg_start(twihs, &dev_data->msg, addr);
-		} else {
-			if (i < num_msgs - 1) {
-				write_msg_start(twihs, &dev_data->msg, addr, msgs[i+1].len);
-			} else {
-				write_msg_start(twihs, &dev_data->msg, addr, 0);
-			}
-			//write_msg_start(twihs, &dev_data->msg, addr);
-		}
+		i2c_sam_twihs_send_msg(dev);
 
-		/* Wait for the transfer to complete */
-		/* Sometimes the interrupt never comes, waiting forever causes a deadlock */
-		int res = k_sem_take(&dev_data->sem, K_MSEC(100));
-		if (dev_data->msg.twihs_sr > 0) {
+		int res = k_sem_take(&dev_data->sem, K_FOREVER);
+		if (dev_data->twihs_sr > 0) {
 			/* Something went wrong */
-			LOG_ERR("Transfer error: %d", dev_data->msg.twihs_sr);
-			LOG_HEXDUMP_DBG(dev_data->msg.buf, dev_data->msg.len, "data");
+			LOG_ERR("Transfer error: %d", dev_data->twihs_sr);
 			return -EIO;
 		} else if (res != 0) {
 			/* Timeout */
 			LOG_ERR("Transfer timeout");
-			LOG_ERR("idx: %d, len: %d", dev_data->msg.idx, dev_data->msg.len);
-			LOG_HEXDUMP_ERR(dev_data->msg.buf, dev_data->msg.len, "data");
 			return -EAGAIN;
 		}
 	}
-
 	return 0;
+}
+
+static int i2c_sam_twihs_recover_bus(const struct device *dev) {
+	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
+	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
+	Twihs *const twihs = dev_cfg->regs;
+
+	/* Send the Clear Bus Command */
+	twihs->TWIHS_CR = TWIHS_CR_CLEAR | TWIHS_CR_LOCKCLR;
 }
 
 static void i2c_sam_twihs_isr(const struct device *dev)
@@ -299,82 +293,59 @@ static void i2c_sam_twihs_isr(const struct device *dev)
 	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
 	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
 	Twihs *const twihs = dev_cfg->regs;
-	struct twihs_msg *msg = &dev_data->msg;
+	struct i2c_msg * msg = &dev_data->msgs[dev_data->msgs_idx];
 	uint32_t isr_status;
 
 	/* Retrieve interrupt status */
 	isr_status = twihs->TWIHS_SR & twihs->TWIHS_IMR;
-	LOG_WRN("ISR: %x", isr_status);
+	if (isr_status == 0) {
+		return;
+	}
 
 	/* Not Acknowledged */
 	if (isr_status & TWIHS_SR_NACK) {
-		msg->twihs_sr = isr_status;
-		LOG_ERR("NACK");
-		if ( msg->len == 1U && (msg->flags & I2C_MSG_RESTART)) {
-			twihs->TWIHS_CR = TWIHS_CR_STOP;
-		}
+		dev_data->twihs_sr = isr_status;
 		goto tx_comp;
 	}
 
 	/* Byte received */
 	if (isr_status & TWIHS_SR_RXRDY) {
-		msg->buf[msg->idx++] = twihs->TWIHS_RHR;
-		LOG_WRN("RXRDY: %x (%d / %d)", msg->buf[msg->idx - 1], msg->idx, msg->len);
-
-		if (msg->idx == msg->len - 1U) {
+		/* We disable interrupts here because the timing is very sensitive */
+		int key = irq_lock();
+		msg->buf[dev_data->msg_idx++] = twihs->TWIHS_RHR;
+		if (dev_data->msg_idx == msg->len - 1U) {
 			/* Send STOP condition */
-			LOG_WRN("(TWIHS_SR_RXRDY) Stop(n)");
 			twihs->TWIHS_CR = TWIHS_CR_STOP;
 		} else if (msg->len == 1U) {
 			/* Send STOP condition */
-			LOG_WRN("(TWIHS_SR_RXRDY) Stop(1)");
 			twihs->TWIHS_CR = TWIHS_CR_STOP;
 		}
+		irq_unlock(key);
 	}
 
 	/* Byte sent */
 	if (isr_status & TWIHS_SR_TXRDY) {
-		if (msg->idx == msg->len) {
+		if (dev_data->msg_idx == msg->len) {
 			if (msg->flags & I2C_MSG_STOP) {
-				LOG_WRN("(TWIHS_SR_TXRDY) Stop");
 				/* Send STOP condition */
 				twihs->TWIHS_CR = TWIHS_CR_STOP;
 				/* Disable Transmit Ready interrupt */
 				twihs->TWIHS_IDR = TWIHS_IDR_TXRDY;
-
 			} else if (msg->flags & I2C_MSG_RESTART) {
-				twihs->TWIHS_IDR = TWIHS_IDR_TXRDY | TWIHS_IDR_TXCOMP;
-				//twihs->TWIHS_IDR = twihs->TWIHS_IMR;
-				twihs->TWIHS_MMR = 0;
-				twihs->TWIHS_IADR = 0;
-				twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(msg->next_addr);
-				//twihs->TWIHS_IER = TWIHS_IER_RXRDY | TWIHS_IER_NACK;
-				if (msg->next_len == 1U) {
-					LOG_WRN("(TWIHS_SR_TXRDY) Repeated Start + Stop");
-					twihs->TWIHS_CR = TWIHS_CR_START | TWIHS_CR_STOP;
-				} else {
-					LOG_WRN("(TWIHS_SR_TXRDY) Repeated Start");
-					twihs->TWIHS_CR = TWIHS_CR_START;
-				}
-			//*/
-				goto tx_comp;
+					/* Disable Transmit Ready interrupt */
+					twihs->TWIHS_IDR = TWIHS_IDR_TXRDY;
 
-				/* We are done */
-				//k_sem_give(&dev_data->sem);
-
-				/* Send STOP condition */
-				//twihs->TWIHS_CR = TWIHS_CR_START;
-				/* Disable Transmit Ready interrupt */
-
-				//return;
+					/* We disable interrupts here because the timing is very sensitive */
+					int key = irq_lock();
+					dev_data->msgs_idx++;
+					i2c_sam_twihs_send_msg(dev);
+					irq_unlock(key);
 			} else {
 				/* Transmission completed */
-				LOG_WRN("(TWIHS_SR_TXRDY) Complete");
 				goto tx_comp;
 			}
 		} else {
-			twihs->TWIHS_THR = msg->buf[msg->idx++];
-			LOG_WRN("TXRDY: %x", msg->buf[msg->idx - 1]);
+			twihs->TWIHS_THR = msg->buf[dev_data->msg_idx++];
 		}
 	}
 
@@ -387,9 +358,9 @@ static void i2c_sam_twihs_isr(const struct device *dev)
 
 tx_comp:
 	/* Disable all enabled interrupts */
-	LOG_WRN("Complete");
 	twihs->TWIHS_IDR = twihs->TWIHS_IMR;
 	/* We are done */
+	dev_data->msgs_idx++;
 	k_sem_give(&dev_data->sem);
 }
 
@@ -435,6 +406,7 @@ static int i2c_sam_twihs_initialize(const struct device *dev)
 static const struct i2c_driver_api i2c_sam_twihs_driver_api = {
 	.configure = i2c_sam_twihs_configure,
 	.transfer = i2c_sam_twihs_transfer,
+	.recover_bus = i2c_sam_twihs_recover_bus,
 };
 
 #define I2C_TWIHS_SAM_INIT(n)						\
