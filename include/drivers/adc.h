@@ -77,6 +77,9 @@ enum adc_reference {
 	ADC_REF_INTERNAL,  /**< Internal. */
 	ADC_REF_EXTERNAL0, /**< External, input 0. */
 	ADC_REF_EXTERNAL1, /**< External, input 1. */
+#ifdef CONFIG_BINDGEN_HACKS
+	ADC_REF_MAX = UINT32_MAX, /**< Force enum to be 32-bit. */
+#endif
 };
 
 
