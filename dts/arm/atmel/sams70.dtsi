@@ -357,7 +357,7 @@
 		};
 
 		tc0_ch0: tc@4000c000 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,atmel,sam-pwm-tc";
 			reg = <0x4000c000 0x40>;
 			interrupts = <23 0>;
 			peripheral-id = <23>;
