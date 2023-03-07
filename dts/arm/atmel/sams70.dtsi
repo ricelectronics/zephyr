@@ -363,116 +363,128 @@
 			peripheral-id = <23>;
 			status = "disabled";
 			label = "TC0_CH0";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
 		tc0_ch1: tc@4000c040 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,sam-pwm-t";
 			reg = <0x4000c040 0x40>;
 			interrupts = <24 0>;
 			peripheral-id = <24>;
 			status = "disabled";
 			label = "TC0_CH1";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
 		tc0_ch2: tc@4000c080 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,sam-pwm-t";
 			reg = <0x4000c080 0x40>;
 			interrupts = <25 0>;
 			peripheral-id = <25>;
 			status = "disabled";
 			label = "TC0_CH2";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
 		tc1_ch0: tc@40010000 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,sam-pwm-t";
 			reg = <0x40010000 0x40>;
 			interrupts = <26 0>;
 			peripheral-id = <26>;
 			status = "disabled";
 			label = "TC1_CH0";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
 		tc1_ch1: tc@40010040 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,sam-pwm-t";
 			reg = <0x40010040 0x40>;
 			interrupts = <27 0>;
 			peripheral-id = <27>;
 			status = "disabled";
 			label = "TC1_CH1";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
 		tc1_ch2: tc@40010080 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,sam-pwm-t";
 			reg = <0x40010080 0x40>;
 			interrupts = <28 0>;
 			peripheral-id = <28>;
 			status = "disabled";
 			label = "TC1_CH2";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
 		tc2_ch0: tc@40014000 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,sam-pwm-t";
 			reg = <0x40014000 0x40>;
 			interrupts = <47 0>;
 			peripheral-id = <47>;
 			status = "disabled";
 			label = "TC2_CH0";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
 		tc2_ch1: tc@40014040 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,sam-pwm-t";
 			reg = <0x40014040 0x40>;
 			interrupts = <48 0>;
 			peripheral-id = <48>;
 			status = "disabled";
 			label = "TC2_CH1";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
 		tc2_ch2: tc@40014080 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,sam-pwm-t";
 			reg = <0x40014080 0x40>;
 			interrupts = <49 0>;
 			peripheral-id = <49>;
 			status = "disabled";
 			label = "TC2_CH2";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
 		tc3_ch0: tc@40054000 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,sam-pwm-t";
 			reg = <0x40054000 0x40>;
 			interrupts = <50 0>;
 			peripheral-id = <50>;
 			status = "disabled";
 			label = "TC3_CH0";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
 		tc3_ch1: tc@40054040 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,sam-pwm-t";
 			reg = <0x40054040 0x40>;
 			interrupts = <51 0>;
 			peripheral-id = <51>;
 			status = "disabled";
 			label = "TC3_CH1";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
 		tc3_ch2: tc@40054080 {
-			compatible = "atmel,sam-tc";
+			compatible = "atmel,sam-tc,sam-pwm-t";
 			reg = <0x40054080 0x40>;
 			interrupts = <52 0>;
 			peripheral-id = <52>;
 			status = "disabled";
 			label = "TC3_CH2";
+			#pwm-cells = <2>;
 			pinctrl-0 = <>;
 		};
 
