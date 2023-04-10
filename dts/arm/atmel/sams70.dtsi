@@ -120,6 +120,23 @@
 		};
 
 		/* Only on N & Q devices */
+		qspi: qspi@4007c000 {
+			compatible = "atmel,sam-qspi";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0x4007c000 0xec>;
+			interrupts = <43 0>;
+			peripheral-id = <43>;
+			label = "QSPI";
+			status = "disabled";
+			pinctrl-0 = <
+				&pa13a_qspi_qio0
+				&pa12a_qspi_qio1
+				&pa14a_qspi_qsck
+				&pa11a_qspi_qcs
+			>;
+		};
+
 		spi0: spi@40008000 {
 			compatible = "atmel,sam-spi";
 			#address-cells = <1>;
