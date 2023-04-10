@@ -685,10 +685,10 @@ static int spi_sam_init(const struct device *dev)
 	int8_t rx_idx = -1;
 	if (cfg->dma[0]) {
 		LOG_DBG("dma[0] channel is configured for %s", dev->name);
-		if (cfg->dma_slot[0] == DMA_PERID_SPI0_TX || cfg->dma_slot[0] == DMA_PERID_SPI1_TX) {
+		if (cfg->dma_slot[0] == XDMAC_CC_PERID_SPI0_TX || cfg->dma_slot[0] == XDMAC_CC_PERID_SPI1_TX) {
 			LOG_DBG("dma[0] channel is configured for TX");
 			tx_idx = 0;
-		} else if (cfg->dma_slot[0] == DMA_PERID_SPI0_RX || cfg->dma_slot[0] == DMA_PERID_SPI1_RX) {
+		} else if (cfg->dma_slot[0] == XDMAC_CC_PERID_SPI0_RX || cfg->dma_slot[0] == XDMAC_CC_PERID_SPI1_RX) {
 			LOG_DBG("dma[0] channel is configured for RX");
 			rx_idx = 0;
 		}
@@ -696,10 +696,10 @@ static int spi_sam_init(const struct device *dev)
 
 	if (cfg->dma[1]) {
 		LOG_DBG("dma[1] channel is configured for %s", dev->name);
-		if (cfg->dma_slot[1] == DMA_PERID_SPI0_TX || cfg->dma_slot[1] == DMA_PERID_SPI1_TX) {
+		if (cfg->dma_slot[1] == XDMAC_CC_PERID_SPI0_TX || cfg->dma_slot[1] == XDMAC_CC_PERID_SPI1_TX) {
 			LOG_DBG("dma[1] channel is configured for TX");
 			tx_idx = 1;
-		} else if (cfg->dma_slot[1] == DMA_PERID_SPI0_RX || cfg->dma_slot[1] == DMA_PERID_SPI1_RX) {
+		} else if (cfg->dma_slot[1] == XDMAC_CC_PERID_SPI0_RX || cfg->dma_slot[1] == XDMAC_CC_PERID_SPI1_RX) {
 			LOG_DBG("dma[1] channel is configured for RX");
 			rx_idx = 1;
 		}

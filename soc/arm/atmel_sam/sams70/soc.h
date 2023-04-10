@@ -82,6 +82,7 @@
 
 #include "pwm_fixup.h"
 #include "usart_fixup.h"
+#include "dma_fixup.h"
 #include "fixups.h"
 
 #endif /* _ATMEL_SAMS70_SOC_H_ */
