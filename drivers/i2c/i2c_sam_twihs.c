@@ -236,7 +236,7 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 		int res = k_sem_take(&dev_data->sem, K_FOREVER);
 		if (dev_data->twihs_sr > 0) {
 			/* Something went wrong */
-			LOG_ERR("Transfer error: %d", dev_data->twihs_sr);
+			LOG_ERR("Transfer error: %x", dev_data->twihs_sr);
 			return -EIO;
 		} else if (res != 0) {
 			/* Timeout */
