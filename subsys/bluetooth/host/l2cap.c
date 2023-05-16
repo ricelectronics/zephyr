@@ -1053,9 +1053,9 @@ static uint16_t l2cap_check_security(struct bt_conn *conn,
 
 	if (keys) {
 		if (conn->role == BT_HCI_ROLE_CENTRAL) {
-			ltk_present = keys->id & (BT_KEYS_LTK_P256 | BT_KEYS_PERIPH_LTK);
+			ltk_present = keys->keys & (BT_KEYS_LTK_P256 | BT_KEYS_PERIPH_LTK);
 		} else {
-			ltk_present = keys->id & (BT_KEYS_LTK_P256 | BT_KEYS_LTK);
+			ltk_present = keys->keys & (BT_KEYS_LTK_P256 | BT_KEYS_LTK);
 		}
 	} else {
 		ltk_present = false;
@@ -1295,18 +1295,13 @@ static void le_ecred_reconf_req(struct bt_l2cap *l2cap, uint8_t ident,
 		chan = bt_l2cap_le_lookup_tx_cid(conn, scid);
 		if (!chan) {
 			result = BT_L2CAP_RECONF_INVALID_CID;
-			continue;
+			goto response;
 		}
 
-		/* If the MTU value is decreased for any of the included
-		 * channels, then the receiver shall disconnect all
-		 * included channels.
-		 */
 		if (BT_L2CAP_LE_CHAN(chan)->tx.mtu > mtu) {
 			BT_ERR("chan %p decreased MTU %u -> %u", chan,
 			       BT_L2CAP_LE_CHAN(chan)->tx.mtu, mtu);
 			result = BT_L2CAP_RECONF_INVALID_MTU;
-			bt_l2cap_chan_disconnect(chan);
 			goto response;
 		}
 

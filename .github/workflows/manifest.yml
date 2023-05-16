@@ -6,15 +6,16 @@ on:
 
 jobs:
   contribs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     name: Manifest
     steps:
       - name: Checkout the code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           path: zephyrproject/zephyr
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Manifest
         uses: zephyrproject-rtos/action-manifest@2f1ad2908599d4fe747f886f9d733dd7eebae4ef

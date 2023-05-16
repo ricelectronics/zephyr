@@ -239,13 +239,15 @@ static bool start_http_client(void)
 	int protocol = IPPROTO_TCP;
 #endif
 
+	(void)memset(&hints, 0, sizeof(hints));
+
 	if (IS_ENABLED(CONFIG_NET_IPV6)) {
 		hints.ai_family = AF_INET6;
+		hints.ai_socktype = SOCK_STREAM;
 	} else if (IS_ENABLED(CONFIG_NET_IPV4)) {
 		hints.ai_family = AF_INET;
+		hints.ai_socktype = SOCK_STREAM;
 	}
-
-	hints.ai_socktype = SOCK_STREAM;
 
 	while (resolve_attempts--) {
 		ret = getaddrinfo(CONFIG_HAWKBIT_SERVER, CONFIG_HAWKBIT_PORT,
@@ -412,6 +414,8 @@ static int hawkbit_find_cancelAction_base(struct hawkbit_ctl_res *res,
 		return 0;
 	}
 
+	LOG_DBG("_links.%s.href=%s", "cancelAction", href);
+
 	helper = strstr(href, "cancelAction/");
 	if (!helper) {
 		/* A badly formatted cancel base is a server error */
@@ -464,6 +468,8 @@ static int hawkbit_find_deployment_base(struct hawkbit_ctl_res *res,
 		*deployment_base = '\0';
 		return 0;
 	}
+
+	LOG_DBG("_links.%s.href=%s", "deploymentBase", href);
 
 	helper = strstr(href, "deploymentBase/");
 	if (!helper) {
@@ -573,17 +579,6 @@ static int hawkbit_parse_deployment(struct hawkbit_dep_res *res,
 	return 0;
 }
 
-static void hawkbit_dump_base(struct hawkbit_ctl_res *r)
-{
-	LOG_DBG("config.polling.sleep=%s", log_strdup(r->config.polling.sleep));
-	LOG_DBG("_links.deploymentBase.href=%s",
-		log_strdup(r->_links.deploymentBase.href));
-	LOG_DBG("_links.configData.href=%s",
-		log_strdup(r->_links.configData.href));
-	LOG_DBG("_links.cancelAction.href=%s",
-		log_strdup(r->_links.cancelAction.href));
-}
-
 static void hawkbit_dump_deployment(struct hawkbit_dep_res *d)
 {
 	struct hawkbit_dep_res_chunk *c = &d->deployment.chunks[0];
@@ -688,28 +683,13 @@ static void response_cb(struct http_response *rsp,
 	switch (type) {
 	case HAWKBIT_PROBE:
 		if (hb_context.dl.http_content_size == 0) {
-			body_data = rsp->body_start;
-			body_len = rsp->data_len;
-			/*
-			 * subtract the size of the HTTP header from body_len
-			 */
-			body_len -= (rsp->body_start - rsp->recv_buf);
 			hb_context.dl.http_content_size = rsp->content_length;
-		} else {
-			/*
-			 * more general case where body data is set, but no need
-			 * to take the HTTP header into account
-			 */
+		}
+
+		if (rsp->body_found) {
 			body_data = rsp->body_start;
-			body_len = rsp->data_len;
-		}
+			body_len = rsp->data_len - (rsp->body_start - rsp->recv_buf);
 
-		if ((rsp->body_found == 1) && (body_data == NULL)) {
-			body_data = rsp->recv_buf;
-			body_len = rsp->data_len;
-		}
-
-		if (body_data != NULL) {
 			if ((hb_context.dl.downloaded_size + body_len) > response_buffer_size) {
 				response_buffer_size <<= 1;
 				rsp_tmp = realloc(hb_context.response_data,
@@ -762,28 +742,13 @@ static void response_cb(struct http_response *rsp,
 
 	case HAWKBIT_PROBE_DEPLOYMENT_BASE:
 		if (hb_context.dl.http_content_size == 0) {
-			body_data = rsp->body_start;
-			body_len = rsp->data_len;
-			/*
-			 * subtract the size of the HTTP header from body_len
-			 */
-			body_len -= (rsp->body_start - rsp->recv_buf);
 			hb_context.dl.http_content_size = rsp->content_length;
-		} else {
-			/*
-			 * more general case where body data is set, but no need
-			 * to take the HTTP header into account
-			 */
+		}
+
+		if (rsp->body_found) {
 			body_data = rsp->body_start;
-			body_len = rsp->data_len;
-		}
+			body_len = rsp->data_len - (rsp->body_start - rsp->recv_buf);
 
-		if ((rsp->body_found == 1) && (body_data == NULL)) {
-			body_data = rsp->recv_buf;
-			body_len = rsp->data_len;
-		}
-
-		if (body_data != NULL) {
 			if ((hb_context.dl.downloaded_size + body_len) > response_buffer_size) {
 				response_buffer_size <<= 1;
 				rsp_tmp = realloc(hb_context.response_data,
@@ -825,28 +790,13 @@ static void response_cb(struct http_response *rsp,
 
 	case HAWKBIT_DOWNLOAD:
 		if (hb_context.dl.http_content_size == 0) {
-			body_data = rsp->body_start;
-			body_len = rsp->data_len;
-			/*
-			 * subtract the size of the HTTP header from body_len
-			 */
-			body_len -= (rsp->body_start - rsp->recv_buf);
 			hb_context.dl.http_content_size = rsp->content_length;
-		} else {
-			/*
-			 * more general case where body data is set, but no need
-			 * to take the HTTP header into account
-			 */
+		}
+
+		if (rsp->body_found) {
 			body_data = rsp->body_start;
-			body_len = rsp->data_len;
-		}
+			body_len = rsp->data_len - (rsp->body_start - rsp->recv_buf);
 
-		if ((rsp->body_found == 1) && (body_data == NULL)) {
-			body_data = rsp->recv_buf;
-			body_len = rsp->data_len;
-		}
-
-		if (body_data != NULL) {
 			ret = mbedtls_md_update(&hb_context.dl.hash_ctx, body_data,
 					  body_len);
 			if (ret != 0) {
@@ -1143,9 +1093,9 @@ enum hawkbit_response hawkbit_probe(void)
 	if (hawkbit_results.base.config.polling.sleep) {
 		/* Update the sleep time. */
 		hawkbit_update_sleep(&hawkbit_results.base);
+		LOG_DBG("config.polling.sleep=%s", hawkbit_results.base.config.polling.sleep);
 	}
 
-	hawkbit_dump_base(&hawkbit_results.base);
 
 	if (hawkbit_results.base._links.cancelAction.href) {
 		ret = hawkbit_find_cancelAction_base(&hawkbit_results.base,
@@ -1172,6 +1122,8 @@ enum hawkbit_response hawkbit_probe(void)
 	}
 
 	if (hawkbit_results.base._links.configData.href) {
+		LOG_DBG("_links.%s.href=%s", "configData",
+			hawkbit_results.base._links.configData.href);
 		memset(hb_context.url_buffer, 0, sizeof(hb_context.url_buffer));
 		hb_context.dl.http_content_size = 0;
 		hb_context.url_buffer_size = URL_BUFFER_SIZE;

@@ -21,6 +21,7 @@ extern void test_posix_pthread_create_negative(void);
 extern void test_posix_pthread_termination(void);
 extern void test_posix_multiple_threads_single_key(void);
 extern void test_posix_single_thread_multiple_keys(void);
+extern void test_pthread_descriptor_leak(void);
 extern void test_nanosleep_NULL_NULL(void);
 extern void test_nanosleep_NULL_notNULL(void);
 extern void test_nanosleep_notNULL_NULL(void);
@@ -36,6 +37,8 @@ extern void test_nanosleep_0_500000000(void);
 extern void test_nanosleep_1_0(void);
 extern void test_nanosleep_1_1(void);
 extern void test_nanosleep_1_1001(void);
+extern void test_sleep(void);
+extern void test_usleep(void);
 
 void test_main(void)
 {
@@ -45,6 +48,7 @@ void test_main(void)
 			ztest_unit_test(test_posix_pthread_termination),
 			ztest_unit_test(test_posix_multiple_threads_single_key),
 			ztest_unit_test(test_posix_single_thread_multiple_keys),
+			ztest_unit_test(test_pthread_descriptor_leak),
 			ztest_unit_test(test_posix_clock),
 			ztest_unit_test(test_posix_semaphore),
 			ztest_unit_test(test_posix_normal_mutex),
@@ -67,7 +71,9 @@ void test_main(void)
 			ztest_unit_test(test_nanosleep_1_0),
 			ztest_unit_test(test_nanosleep_1_1),
 			ztest_unit_test(test_nanosleep_1_1001),
-			ztest_unit_test(test_posix_pthread_create_negative)
+			ztest_unit_test(test_posix_pthread_create_negative),
+			ztest_unit_test(test_sleep),
+			ztest_unit_test(test_usleep)
 			);
 	ztest_run_test_suite(posix_apis);
 }
