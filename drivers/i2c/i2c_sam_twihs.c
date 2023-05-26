@@ -41,6 +41,7 @@ struct i2c_sam_twihs_dev_cfg {
 	Twihs *regs;
 	void (*irq_config)(void);
 	uint32_t bitrate;
+	uint32_t timeout;
 	const struct soc_gpio_pin *pin_list;
 	uint8_t pin_list_size;
 	uint8_t periph_id;
@@ -268,7 +269,7 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 			goto unlock;
 		}
 
-		rc = k_sem_take(&dev_data->sem, K_FOREVER);
+		rc = k_sem_take(&dev_data->sem, K_MSEC(dev_cfg->timeout));
 		if (dev_data->twihs_sr > 0) {
 			/* Something went wrong */
 			LOG_ERR("Transfer error: %x", dev_data->twihs_sr);
@@ -276,7 +277,8 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 			goto unlock;
 		} else if (rc != 0) {
 			/* Timeout */
-			LOG_ERR("Transfer timeout");
+			LOG_ERR("Transfer timeout after %d ms",
+				dev_cfg->timeout);
 			rc = -EAGAIN;
 			goto unlock;
 		}
@@ -454,6 +456,7 @@ static const struct i2c_driver_api i2c_sam_twihs_driver_api = {
 		.pin_list = pins_twihs##n,				\
 		.pin_list_size = ARRAY_SIZE(pins_twihs##n),		\
 		.bitrate = DT_INST_PROP(n, clock_frequency),		\
+		.timeout = DT_INST_PROP(n, timeout),		\
 	};								\
 									\
 	static struct i2c_sam_twihs_dev_data i2c##n##_sam_data;		\
