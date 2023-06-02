@@ -377,7 +377,6 @@ static void cb_handler_rx(struct modbus_context *ctx)
 		n = uart_fifo_read(cfg->dev, cfg->uart_buf_ptr,
 				   (CONFIG_MODBUS_BUFFER_SIZE -
 				    cfg->uart_buf_ctr));
-
 		cfg->uart_buf_ptr += n;
 		cfg->uart_buf_ctr += n;
 	}
@@ -420,7 +419,7 @@ static void uart_cb_handler(const struct device *dev, void *app_data)
 
 	cfg = ctx->cfg;
 
-	while (uart_irq_update(cfg->dev) && uart_irq_is_pending(cfg->dev)) {
+	if (uart_irq_update(cfg->dev) && uart_irq_is_pending(cfg->dev)) {
 
 		if (uart_irq_rx_ready(cfg->dev)) {
 			cb_handler_rx(ctx);

@@ -31,6 +31,11 @@ struct sam_xdmac_channel_cfg {
 	void *user_data;
 	dma_callback_t callback;
 	uint32_t data_size;
+
+	uint32_t block_size;
+	uint32_t start_addr_dest;
+	uint32_t start_addr_source;
+	uint32_t channel_direction;
 };
 
 /* Device constant configuration parameters */
@@ -82,7 +87,7 @@ static void sam_xdmac_isr(const struct device *dev)
 	}
 }
 
-int sam_xdmac_channel_configure(const struct device *dev, uint32_t channel,
+static int sam_xdmac_channel_configure(const struct device *dev, uint32_t channel,
 				struct sam_xdmac_channel_config *param)
 {
 	const struct sam_xdmac_dev_cfg *const dev_cfg = DEV_CFG(dev);
@@ -124,7 +129,7 @@ int sam_xdmac_channel_configure(const struct device *dev, uint32_t channel,
 	return 0;
 }
 
-int sam_xdmac_transfer_configure(const struct device *dev, uint32_t channel,
+static int sam_xdmac_transfer_configure(const struct device *dev, uint32_t channel,
 				 struct sam_xdmac_transfer_config *param)
 {
 	const struct sam_xdmac_dev_cfg *const dev_cfg = DEV_CFG(dev);
@@ -261,6 +266,12 @@ static int sam_xdmac_config(const struct device *dev, uint32_t channel,
 	dev_data->dma_channels[channel].callback = cfg->dma_callback;
 	dev_data->dma_channels[channel].user_data = cfg->user_data;
 
+	// Used to keep track of transfer information
+	dev_data->dma_channels[channel].block_size = cfg->head_block->block_size;
+	dev_data->dma_channels[channel].start_addr_dest = cfg->head_block->dest_address;
+	dev_data->dma_channels[channel].start_addr_source = cfg->head_block->source_address;
+	dev_data->dma_channels[channel].channel_direction = cfg->channel_direction;
+
 	(void)memset(&transfer_cfg, 0, sizeof(transfer_cfg));
 	transfer_cfg.sa = cfg->head_block->source_address;
 	transfer_cfg.da = cfg->head_block->dest_address;
@@ -275,11 +286,23 @@ static int sam_xdmac_transfer_reload(const struct device *dev, uint32_t channel,
 				     uint32_t src, uint32_t dst, size_t size)
 {
 	struct sam_xdmac_dev_data *const dev_data = DEV_DATA(dev);
+
+	// Clear the current buffer
+	#ifndef CONFIG_NOCACHE_MEMORY
+	SCB_CleanInvalidateDCache_by_Addr(
+				(volatile void *)dev_data->dma_channels[channel].start_addr_dest,
+				dev_data->dma_channels[channel].block_size);
+	#endif
+
 	struct sam_xdmac_transfer_config transfer_cfg = {
 		.sa = src,
 		.da = dst,
 		.ublen = size >> dev_data->dma_channels[channel].data_size,
 	};
+
+	dev_data->dma_channels[channel].block_size = size;
+	dev_data->dma_channels[channel].start_addr_dest = dst;
+	dev_data->dma_channels[channel].start_addr_source = src;
 
 	return sam_xdmac_transfer_configure(dev, channel, &transfer_cfg);
 }
@@ -299,6 +322,23 @@ int sam_xdmac_transfer_start(const struct device *dev, uint32_t channel)
 
 	/* Enable channel interrupt */
 	xdmac->XDMAC_GIE = XDMAC_GIE_IE0 << channel;
+
+	/* Clear the cache or there is undefiened behavior */
+#ifndef CONFIG_NOCACHE_MEMORY
+	struct sam_xdmac_dev_data *const dev_data = DEV_DATA(dev);
+	switch (dev_data->dma_channels[channel].channel_direction) {
+		case MEMORY_TO_MEMORY:
+		case PERIPHERAL_TO_MEMORY:
+			SCB_CleanInvalidateDCache_by_Addr(
+				(volatile void *)dev_data->dma_channels[channel].start_addr_dest,
+				dev_data->dma_channels[channel].block_size);
+			break;
+		default:
+			//nothing to do for other cases
+			break;
+	}
+#endif
+
 	/* Enable channel */
 	xdmac->XDMAC_GE = XDMAC_GE_EN0 << channel;
 
@@ -330,7 +370,43 @@ int sam_xdmac_transfer_stop(const struct device *dev, uint32_t channel)
 	return 0;
 }
 
-static int sam_xdmac_initialize(const struct device *dev)
+
+int sam_xdmac_transfer_get_status(const struct device *dev, uint32_t channel,
+				  struct dma_status *status)
+{
+	struct sam_xdmac_dev_data *const dev_data = DEV_DATA(dev);
+	Xdmac *const xdmac = DEV_CFG(dev)->regs;
+
+	if (channel >= DMA_CHANNELS_NO) {
+		return -EINVAL;
+	}
+	status->busy = false;
+	//TODO: make this mirror if the dma request is started or stopped
+	if ((xdmac->XDMAC_GS & (XDMAC_GS_ST0 << channel))) {
+		status->busy = true;
+	}
+
+
+	// Required for proper opperation with cache enabled
+	#ifndef CONFIG_NOCACHE_MEMORY
+		SCB_CleanInvalidateDCache_by_Addr(&dev_data->dma_channels[channel], sizeof(struct sam_xdmac_channel_cfg));
+	#endif
+
+	status->dir = dev_data->dma_channels[channel].channel_direction;
+
+	if (status->dir == PERIPHERAL_TO_MEMORY || status->dir == MEMORY_TO_MEMORY) {
+		// Buff size - bytes already transferred
+		status->pending_length = dev_data->dma_channels[channel].block_size -
+			(xdmac->XDMAC_CHID[channel].XDMAC_CDA - dev_data->dma_channels[channel].start_addr_dest);
+	} else {
+		status->pending_length =  dev_data->dma_channels[channel].block_size -
+			(xdmac->XDMAC_CHID[channel].XDMAC_CSA - dev_data->dma_channels[channel].start_addr_source);
+	}
+
+	return 0;
+}
+
+int sam_xdmac_initialize(const struct device *dev)
 {
 	const struct sam_xdmac_dev_cfg *const dev_cfg = DEV_CFG(dev);
 	Xdmac *const xdmac = dev_cfg->regs;
@@ -359,6 +435,7 @@ static const struct dma_driver_api sam_xdmac_driver_api = {
 	.reload = sam_xdmac_transfer_reload,
 	.start = sam_xdmac_transfer_start,
 	.stop = sam_xdmac_transfer_stop,
+	.get_status = sam_xdmac_transfer_get_status,
 };
 
 /* DMA0 */
@@ -379,5 +456,5 @@ static const struct sam_xdmac_dev_cfg dma0_sam_config = {
 static struct sam_xdmac_dev_data dma0_sam_data;
 
 DEVICE_DT_INST_DEFINE(0, &sam_xdmac_initialize, NULL,
-		    &dma0_sam_data, &dma0_sam_config, POST_KERNEL,
+		    &dma0_sam_data, &dma0_sam_config, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &sam_xdmac_driver_api);

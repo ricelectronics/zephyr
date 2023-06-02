@@ -42,6 +42,12 @@ config EEPROM_AT24
 	help
 	  Enable support for Atmel AT24 (and compatible) I2C EEPROMs.
 
+config EEPROM_AT24_FM24
+	bool "Cypress FM24 (and compatible) I2C FRAM support"
+	depends on EEPROM_AT24
+	help
+	  Enable support for FM24 (and compatible) I2C FRAM chips.
+
 config EEPROM_AT25
 	bool "Atmel AT25 (and compatible) SPI EEPROM support"
 	depends on SPI

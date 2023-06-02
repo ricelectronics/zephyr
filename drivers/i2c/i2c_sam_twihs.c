@@ -41,6 +41,7 @@ struct i2c_sam_twihs_dev_cfg {
 	Twihs *regs;
 	void (*irq_config)(void);
 	uint32_t bitrate;
+	uint32_t timeout;
 	const struct soc_gpio_pin *pin_list;
 	uint8_t pin_list_size;
 	uint8_t periph_id;
@@ -63,7 +64,13 @@ struct twihs_msg {
 /* Device run time data */
 struct i2c_sam_twihs_dev_data {
 	struct k_sem sem;
-	struct twihs_msg msg;
+	struct k_mutex mutex;
+	struct i2c_msg *msgs;
+	uint8_t msgs_count;
+	volatile uint8_t msgs_idx;
+	volatile uint8_t msg_idx;
+	uint32_t twihs_sr;
+	uint16_t addr;
 };
 
 #define DEV_NAME(dev) ((dev)->name)
@@ -107,19 +114,34 @@ static int i2c_clk_set(Twihs *const twihs, uint32_t speed)
 static int i2c_sam_twihs_configure(const struct device *dev, uint32_t config)
 {
 	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
+	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
 	Twihs *const twihs = dev_cfg->regs;
 	uint32_t bitrate;
-	int ret;
+	int rc;
+
+	if (k_is_in_isr()) {
+		rc = k_mutex_lock(&dev_data->mutex, K_NO_WAIT);
+		if (0 > rc) {
+			return -EBUSY;
+		}
+	} else {
+		rc = k_mutex_lock(&dev_data->mutex, K_FOREVER);
+		if (0 > rc) {
+			return rc;
+		}
+	}
 
 	if (!(config & I2C_MODE_MASTER)) {
 		LOG_ERR("Master Mode is not enabled");
-		return -EIO;
+		rc = -EIO;
+		goto unlock;
 	}
 
 	if (config & I2C_ADDR_10_BITS) {
 		LOG_ERR("I2C 10-bit addressing is currently not supported");
 		LOG_ERR("Please submit a patch");
-		return -EIO;
+		rc = -EIO;
+		goto unlock;
 	}
 
 	/* Configure clock */
@@ -132,52 +154,74 @@ static int i2c_sam_twihs_configure(const struct device *dev, uint32_t config)
 		break;
 	default:
 		LOG_ERR("Unsupported I2C speed value");
-		return -EIO;
+		rc = -EIO;
+		goto unlock;
 	}
 
 	/* Setup clock waveform */
-	ret = i2c_clk_set(twihs, bitrate);
-	if (ret < 0) {
-		return ret;
+	rc = i2c_clk_set(twihs, bitrate);
+	if (rc < 0) {
+		goto unlock;
 	}
 
 	/* Disable Slave Mode */
 	twihs->TWIHS_CR = TWIHS_CR_SVDIS;
 
 	/* Enable Master Mode */
-	twihs->TWIHS_CR = TWIHS_CR_MSEN;
+	twihs->TWIHS_CR = TWIHS_CR_MSEN | TWIHS_CR_FIFOEN;
 
-	return 0;
+unlock:
+	k_mutex_unlock(&dev_data->mutex);
+	return rc;
 }
 
-static void write_msg_start(Twihs *const twihs, struct twihs_msg *msg,
-			    uint8_t daddr)
+static inline void write_msg_start(Twihs *const twihs, struct i2c_sam_twihs_dev_data *const dev_data, struct i2c_msg * msg)
 {
-	/* Set slave address. */
-	twihs->TWIHS_MMR = TWIHS_MMR_DADR(daddr);
+	twihs->TWIHS_MMR = TWIHS_MMR_DADR(dev_data->addr);
 
 	/* Write first data byte on I2C bus */
-	twihs->TWIHS_THR = msg->buf[msg->idx++];
+	twihs->TWIHS_THR = msg->buf[dev_data->msg_idx++];
 
 	/* Enable Transmit Ready and Transmission Completed interrupts */
 	twihs->TWIHS_IER = TWIHS_IER_TXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
 }
 
-static void read_msg_start(Twihs *const twihs, struct twihs_msg *msg,
-			   uint8_t daddr)
+static inline void read_msg_start(Twihs *const twihs, uint8_t len, uint16_t addr)
 {
-	uint32_t twihs_cr_stop;
-
-	/* Set slave address and number of internal address bytes */
-	twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(daddr);
+	twihs->TWIHS_MMR = TWIHS_MMR_MREAD | TWIHS_MMR_DADR(addr);
 
 	/* Enable Receive Ready and Transmission Completed interrupts */
 	twihs->TWIHS_IER = TWIHS_IER_RXRDY | TWIHS_IER_TXCOMP | TWIHS_IER_NACK;
 
 	/* In single data byte read the START and STOP must both be set */
-	twihs_cr_stop = (msg->len == 1U) ? TWIHS_CR_STOP : 0;
-	/* Start the transfer by sending START condition */
-	twihs->TWIHS_CR = TWIHS_CR_START | twihs_cr_stop;
+	if (len == 1U) {
+		twihs->TWIHS_CR = TWIHS_CR_START | TWIHS_CR_STOP;
+	} else {
+		/* Start the transfer by sending START condition */
+		twihs->TWIHS_CR = TWIHS_CR_START;
+	}
+}
+
+static int i2c_sam_twihs_send_msg(const struct device *dev)
+{
+	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
+	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
+	Twihs *const twihs = dev_cfg->regs;
+
+	__ASSERT(dev_data->msgs, "No messages to send");
+	__ASSERT(dev_data->msgs_count > dev_data->msgs_idx, "Message out of range");
+
+	dev_data->msg_idx = 0;
+
+	// Get the first message
+	struct i2c_msg * msg = &dev_data->msgs[dev_data->msgs_idx];
+
+	if ((msg->flags & I2C_MSG_RW_MASK) == I2C_MSG_READ) {
+		read_msg_start(twihs, msg->len, dev_data->addr);
+	} else {
+		write_msg_start(twihs, dev_data, msg);
+	}
+	return 0;
 }
 
 static int i2c_sam_twihs_transfer(const struct device *dev,
@@ -187,10 +231,24 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
 	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
 	Twihs *const twihs = dev_cfg->regs;
+	int rc;
 
 	__ASSERT_NO_MSG(msgs);
 	if (!num_msgs) {
 		return 0;
+	}
+
+	/* Lock the I2C bus for the caller */
+	if (k_is_in_isr()) {
+		rc = k_mutex_lock(&dev_data->mutex, K_NO_WAIT);
+		if (0 > rc) {
+			return -EBUSY;
+		}
+	} else {
+		rc = k_mutex_lock(&dev_data->mutex, K_FOREVER);
+		if (0 > rc) {
+			return rc;
+		}
 	}
 
 	/* Clear pending interrupts, such as NACK. */
@@ -199,27 +257,61 @@ static int i2c_sam_twihs_transfer(const struct device *dev,
 	/* Set number of internal address bytes to 0, not used. */
 	twihs->TWIHS_IADR = 0;
 
-	for (int i = 0; i < num_msgs; i++) {
-		dev_data->msg.buf = msgs[i].buf;
-		dev_data->msg.len = msgs[i].len;
-		dev_data->msg.idx = 0U;
-		dev_data->msg.twihs_sr = 0U;
-		dev_data->msg.flags = msgs[i].flags;
-		if ((msgs[i].flags & I2C_MSG_RW_MASK) == I2C_MSG_READ) {
-			read_msg_start(twihs, &dev_data->msg, addr);
-		} else {
-			write_msg_start(twihs, &dev_data->msg, addr);
-		}
-		/* Wait for the transfer to complete */
-		k_sem_take(&dev_data->sem, K_FOREVER);
+	dev_data->msgs = msgs;
+	dev_data->msgs_count = num_msgs;
+	dev_data->msgs_idx = 0;
+	dev_data->addr = addr;
 
-		if (dev_data->msg.twihs_sr > 0) {
+	while(dev_data->msgs_idx < dev_data->msgs_count) {
+		rc = i2c_sam_twihs_send_msg(dev);
+		if (rc != 0) {
+			LOG_ERR("Failed to send message");
+			goto unlock;
+		}
+
+		rc = k_sem_take(&dev_data->sem, K_MSEC(dev_cfg->timeout));
+		if (dev_data->twihs_sr > 0) {
 			/* Something went wrong */
-			return -EIO;
+			LOG_ERR("Transfer error: %x", dev_data->twihs_sr);
+			rc = -EIO;
+			goto unlock;
+		} else if (rc != 0) {
+			/* Timeout */
+			LOG_ERR("Transfer timeout after %d ms",
+				dev_cfg->timeout);
+			rc = -EAGAIN;
+			goto unlock;
 		}
 	}
 
-	return 0;
+unlock:
+	k_mutex_unlock(&dev_data->mutex);
+
+	return rc;
+}
+
+static int i2c_sam_twihs_recover_bus(const struct device *dev) {
+	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
+	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
+	Twihs *const twihs = dev_cfg->regs;
+	int rc;
+
+	if (k_is_in_isr()) {
+		rc = k_mutex_lock(&dev_data->mutex, K_NO_WAIT);
+		if (0 > rc) {
+			return -EBUSY;
+		}
+	} else {
+		rc = k_mutex_lock(&dev_data->mutex, K_FOREVER);
+		if (0 > rc) {
+			return rc;
+		}
+	}
+
+	/* Send the Clear Bus Command */
+	twihs->TWIHS_CR = TWIHS_CR_CLEAR | TWIHS_CR_LOCKCLR;
+
+	k_mutex_unlock(&dev_data->mutex);
 }
 
 static void i2c_sam_twihs_isr(const struct device *dev)
@@ -227,43 +319,59 @@ static void i2c_sam_twihs_isr(const struct device *dev)
 	const struct i2c_sam_twihs_dev_cfg *const dev_cfg = DEV_CFG(dev);
 	struct i2c_sam_twihs_dev_data *const dev_data = DEV_DATA(dev);
 	Twihs *const twihs = dev_cfg->regs;
-	struct twihs_msg *msg = &dev_data->msg;
+	struct i2c_msg * msg = &dev_data->msgs[dev_data->msgs_idx];
 	uint32_t isr_status;
 
 	/* Retrieve interrupt status */
 	isr_status = twihs->TWIHS_SR & twihs->TWIHS_IMR;
+	if (isr_status == 0) {
+		return;
+	}
 
 	/* Not Acknowledged */
 	if (isr_status & TWIHS_SR_NACK) {
-		msg->twihs_sr = isr_status;
+		dev_data->twihs_sr = isr_status;
 		goto tx_comp;
 	}
 
 	/* Byte received */
 	if (isr_status & TWIHS_SR_RXRDY) {
-
-		msg->buf[msg->idx++] = twihs->TWIHS_RHR;
-
-		if (msg->idx == msg->len - 1U) {
+		/* We disable interrupts here because the timing is very sensitive */
+		int key = irq_lock();
+		msg->buf[dev_data->msg_idx++] = twihs->TWIHS_RHR;
+		if (dev_data->msg_idx == msg->len - 1U) {
+			/* Send STOP condition */
+			twihs->TWIHS_CR = TWIHS_CR_STOP;
+		} else if (msg->len == 1U) {
 			/* Send STOP condition */
 			twihs->TWIHS_CR = TWIHS_CR_STOP;
 		}
+		irq_unlock(key);
 	}
 
 	/* Byte sent */
 	if (isr_status & TWIHS_SR_TXRDY) {
-		if (msg->idx == msg->len) {
+		if (dev_data->msg_idx == msg->len) {
 			if (msg->flags & I2C_MSG_STOP) {
 				/* Send STOP condition */
 				twihs->TWIHS_CR = TWIHS_CR_STOP;
 				/* Disable Transmit Ready interrupt */
 				twihs->TWIHS_IDR = TWIHS_IDR_TXRDY;
+			} else if (msg->flags & I2C_MSG_RESTART) {
+					/* Disable Transmit Ready interrupt */
+					twihs->TWIHS_IDR = TWIHS_IDR_TXRDY;
+
+					/* We disable interrupts here because the timing is very sensitive */
+					int key = irq_lock();
+					dev_data->msgs_idx++;
+					i2c_sam_twihs_send_msg(dev);
+					irq_unlock(key);
 			} else {
 				/* Transmission completed */
 				goto tx_comp;
 			}
 		} else {
-			twihs->TWIHS_THR = msg->buf[msg->idx++];
+			twihs->TWIHS_THR = msg->buf[dev_data->msg_idx++];
 		}
 	}
 
@@ -278,6 +386,7 @@ tx_comp:
 	/* Disable all enabled interrupts */
 	twihs->TWIHS_IDR = twihs->TWIHS_IMR;
 	/* We are done */
+	dev_data->msgs_idx++;
 	k_sem_give(&dev_data->sem);
 }
 
@@ -294,6 +403,9 @@ static int i2c_sam_twihs_initialize(const struct device *dev)
 
 	/* Initialize semaphore */
 	k_sem_init(&dev_data->sem, 0, 1);
+
+	/* Initialize mutex */
+	k_mutex_init(&dev_data->mutex);
 
 	/* Connect pins to the peripheral */
 	soc_gpio_list_configure(dev_cfg->pin_list, dev_cfg->pin_list_size);
@@ -323,6 +435,7 @@ static int i2c_sam_twihs_initialize(const struct device *dev)
 static const struct i2c_driver_api i2c_sam_twihs_driver_api = {
 	.configure = i2c_sam_twihs_configure,
 	.transfer = i2c_sam_twihs_transfer,
+	.recover_bus = i2c_sam_twihs_recover_bus,
 };
 
 #define I2C_TWIHS_SAM_INIT(n)						\
@@ -343,6 +456,7 @@ static const struct i2c_driver_api i2c_sam_twihs_driver_api = {
 		.pin_list = pins_twihs##n,				\
 		.pin_list_size = ARRAY_SIZE(pins_twihs##n),		\
 		.bitrate = DT_INST_PROP(n, clock_frequency),		\
+		.timeout = DT_INST_PROP(n, timeout),		\
 	};								\
 									\
 	static struct i2c_sam_twihs_dev_data i2c##n##_sam_data;		\

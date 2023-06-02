@@ -19,6 +19,12 @@ properties:
       description: peripheral ID
       required: true
 
+    timeout:
+      type: int
+      description: Transfer timeout in milliseconds
+      required: false
+      default: 10
+
     pinctrl-0:
       type: phandles
       required: true

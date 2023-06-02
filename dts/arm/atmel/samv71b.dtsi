@@ -5,5 +5,3 @@
  */
 
 #include <atmel/same70b.dtsi>
-
-#include "dma_atmel_samv71.h"

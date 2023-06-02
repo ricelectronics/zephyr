@@ -10,3 +10,24 @@ config COUNTER_SAM_TC
 	depends on SOC_FAMILY_SAM
 	help
 	  Enable the Atmel SAM MCU family counter (TC) driver.
+
+if COUNTER_SAM_TC
+
+config COUNTER_SAM_TC_CAPTURE
+	bool "Enable hardware specific support for capture mode"
+	default n
+	depends on SOC_FAMILY_SAM
+	help
+	  Enables support for input capture. This feature does
+	  not use the counter api. To use it include the
+	  following header:
+
+	  #include <drivers/counter/sam_tc.h>
+
+	  There is only a single function; sam_counter_read_capture
+	  which can be used to read the input frequency on one
+	  of the timer pins. As this is hardware specific please
+	  refer to the datasheet for how to configure the timer
+	  for input capture.
+
+endif

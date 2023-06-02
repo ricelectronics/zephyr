@@ -10,3 +10,10 @@ config SPI_SAM
 	depends on SOC_FAMILY_SAM
 	help
 	  Enable support for the SAM SPI driver.
+
+config SPI_SAM_DMA
+	bool "Use DMA for the Atmel SAM SPI driver"
+	default y
+	depends on SPI_SAM
+	help
+	  Use DMA transfers for SPI

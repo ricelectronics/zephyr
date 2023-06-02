@@ -56,6 +56,7 @@ struct eeprom_at2x_config {
 
 struct eeprom_at2x_data {
 	struct k_mutex lock;
+	uint16_t current_address;
 };
 
 static inline int eeprom_at2x_write_protect(const struct device *dev)
@@ -260,6 +261,79 @@ static int eeprom_at24_read(const struct device *dev, off_t offset, void *buf,
 
 	len = eeprom_at24_adjust_read_count(dev, offset, len);
 
+#ifdef CONFIG_EEPROM_AT24_FM24
+	struct eeprom_at2x_data *data = dev->data;
+	uint16_t masked_offset = offset & 0x7FF;
+	uint8_t address = (uint8_t)((bus_addr & ~0x07) | ((masked_offset >> 8) & 0x07));
+
+	/* Reading on FRAM devices work differently */
+	if (data->current_address != offset) {
+		/* Random read */
+		/* For a random read, we need to write the address first */
+		LOG_WRN("Random read, changing internal address register from 0x%04x to 0x%04x",
+			data->current_address, offset);
+
+		// First write the new address
+		uint8_t random_addr[2] = {
+			address,
+			(uint8_t)(masked_offset)
+		};
+		LOG_WRN("Set Rand Address 0x%04x 0x%04x", address, (uint8_t)masked_offset);
+
+		struct i2c_msg msg_rand = {
+			.buf = random_addr,
+			.len = 2,
+			.flags = I2C_MSG_WRITE,
+		};
+
+		err = eeprom_at2x_write_enable(dev);
+		if (err) {
+			LOG_ERR("failed to write-enable EEPROM (err %d)", err);
+			return err;
+		}
+
+		err = i2c_transfer(config->bus.i2c.bus, &msg_rand, 1, address);
+		if (err < 0) {
+			LOG_ERR("Failed to write rand address: %d", err);
+		}
+
+		err = eeprom_at2x_write_protect(dev);
+		if (err) {
+			LOG_ERR("failed to write-protect EEPROM (err %d)", err);
+		}
+
+		data->current_address = offset;
+	}
+
+	LOG_WRN("Reading Sequentially from 0x%04x to 0x%04x", offset, offset + len);
+	LOG_WRN("Send address 0x%04x", address);
+
+
+	struct i2c_msg msg[2] = {
+		{
+			.buf = &address,
+			.len = 1,
+			.flags = I2C_MSG_READ,
+		},
+		{
+			.buf = buf,
+			.len = len,
+			.flags = I2C_MSG_READ | I2C_MSG_STOP,
+		}
+	};
+
+	err = i2c_transfer(config->bus.i2c.bus, msg, 2, address);
+	if (err < 0) {
+		LOG_ERR("Failed to read from address: %d", err);
+	}
+
+	LOG_HEXDUMP_WRN(buf, len, "RX");
+
+	data->current_address += len;
+	data->current_address = data->current_address % 0x7FF;
+
+	return len;
+#else
 	/*
 	 * A write cycle may be in progress so reads must be attempted
 	 * until the current write cycle should be completed.
@@ -281,20 +355,67 @@ static int eeprom_at24_read(const struct device *dev, off_t offset, void *buf,
 	}
 
 	return len;
+#endif
 }
 
 static int eeprom_at24_write(const struct device *dev, off_t offset,
 			     const void *buf, size_t len)
 {
 	const struct eeprom_at2x_config *config = dev->config;
-	int count = eeprom_at2x_limit_write_count(dev, offset, len);
-	uint8_t block[config->addr_width / 8 + count];
-	int64_t timeout;
 	uint16_t bus_addr;
-	int i = 0;
 	int err;
 
 	bus_addr = eeprom_at24_translate_offset(dev, &offset);
+
+#ifdef CONFIG_EEPROM_AT24_FM24
+	struct eeprom_at2x_data *data = dev->data;
+	uint16_t masked_offset = offset & 0x7FF;
+	uint8_t address = (uint8_t)((bus_addr & ~0x07) | ((masked_offset >> 8) & 0x07));
+	uint8_t random_addr[2] = {
+			address,
+			(uint8_t)(masked_offset)
+	};
+
+	struct i2c_msg msg1 = {
+		.buf = random_addr,
+		.len = 2,
+		.flags = I2C_MSG_WRITE,
+	};
+
+	LOG_HEXDUMP_WRN(random_addr, 2, "TX ADDRESS");
+
+	err = i2c_transfer(config->bus.i2c.bus, &msg1, 1, address);
+	if (err < 0) {
+		LOG_ERR("Failed to write address: %d", err);
+	} else {
+		LOG_WRN("Success to write address: %d", offset);
+	}
+
+	data->current_address = offset;
+
+	struct i2c_msg msg2 = {
+		.buf = buf,
+		.len = len,
+		.flags = I2C_MSG_WRITE,
+	};
+
+	LOG_HEXDUMP_WRN(buf, len, "TX DATA");
+
+	err = i2c_transfer(config->bus.i2c.bus, &msg2, 1, address);
+	if (err < 0) {
+		LOG_ERR("Random write failed %d", err);
+		return err;
+	}
+
+	data->current_address += len;
+	data->current_address = data->current_address % 0x7FF;
+
+	return len;
+#else
+	int count = eeprom_at2x_limit_write_count(dev, offset, len);
+	uint8_t block[config->addr_width / 8 + count];
+	int64_t timeout;
+	int i = 0;
 
 	/*
 	 * Not all I2C EEPROMs support repeated start so the the
@@ -328,6 +449,7 @@ static int eeprom_at24_write(const struct device *dev, off_t offset,
 	}
 
 	return count;
+#endif
 }
 #endif /* CONFIG_EEPROM_AT24 */
 
@@ -553,6 +675,7 @@ static int eeprom_at2x_init(const struct device *dev)
 	int err;
 
 	k_mutex_init(&data->lock);
+	data->current_address = 0;
 
 	if (!config->bus_is_ready(dev)) {
 		LOG_ERR("parent bus device not ready");

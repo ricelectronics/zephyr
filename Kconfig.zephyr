@@ -260,6 +260,13 @@ endmenu
 
 menu "Compiler Options"
 
+config BINDGEN_HACKS
+	bool "Enable bindgen hacks"
+	help
+	  This option enables a set of hacks to make bindgen work with Zephyr.
+	  This option is only useful when using bindgen to generate Rust bindings
+	  for Zephyr.
+
 config CODING_GUIDELINE_CHECK
 	bool "Enforce coding guideline rules"
 	help
