@@ -56,7 +56,7 @@ static int cmd_read(const struct shell *shell, size_t argc, char **argv)
 
 		pending = MIN(len - upto, SHELL_HEXDUMP_BYTES_IN_LINE);
 		err = eeprom_read(eeprom, addr, data, pending);
-		if (err) {
+		if (0 > err) {
 			shell_error(shell, "EEPROM read failed (err %d)", err);
 			return err;
 		}

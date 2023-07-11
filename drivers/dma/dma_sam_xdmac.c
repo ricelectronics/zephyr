@@ -290,8 +290,8 @@ static int sam_xdmac_transfer_reload(const struct device *dev, uint32_t channel,
 	// Clear the current buffer
 	#ifndef CONFIG_NOCACHE_MEMORY
 	SCB_CleanInvalidateDCache_by_Addr(
-				(volatile void *)dev_data->dma_channels[channel].start_addr_dest,
-				dev_data->dma_channels[channel].block_size);
+				(volatile void *)dst,
+				size);
 	#endif
 
 	struct sam_xdmac_transfer_config transfer_cfg = {
@@ -333,6 +333,11 @@ int sam_xdmac_transfer_start(const struct device *dev, uint32_t channel)
 				(volatile void *)dev_data->dma_channels[channel].start_addr_dest,
 				dev_data->dma_channels[channel].block_size);
 			break;
+		case MEMORY_TO_PERIPHERAL:
+			SCB_CleanInvalidateDCache_by_Addr(
+				(volatile void *)dev_data->dma_channels[channel].start_addr_source,
+				dev_data->dma_channels[channel].block_size);
+			break;
 		default:
 			//nothing to do for other cases
 			break;
@@ -366,6 +371,14 @@ int sam_xdmac_transfer_stop(const struct device *dev, uint32_t channel)
 	xdmac->XDMAC_CHID[channel].XDMAC_CID = 0xFF;
 	/* Clear the pending Interrupt Status bit(s) */
 	(void)xdmac->XDMAC_CHID[channel].XDMAC_CIS;
+
+	/* Invalidate the cache */ 
+#ifndef CONFIG_NOCACHE_MEMORY
+	struct sam_xdmac_dev_data *const dev_data = DEV_DATA(dev);
+	SCB_CleanInvalidateDCache_by_Addr(
+		(volatile void *)dev_data->dma_channels[channel].start_addr_dest,
+		dev_data->dma_channels[channel].block_size);
+#endif
 
 	return 0;
 }
