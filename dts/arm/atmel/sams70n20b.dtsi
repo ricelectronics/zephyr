@@ -1,0 +1,9 @@
+/*
+ * Copyright (c) 2022 RIC Electronics
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <atmel/sams70b.dtsi>
+#include <atmel/samx7xx20.dtsi>
+#include "dma_atmel_sams70.h"
