@@ -71,6 +71,9 @@ static void pinctrl_configure_pin(pinctrl_soc_pin_t pin)
 	if (port_func == SAM_PINMUX_FUNC_periph) {
 		soc_pin.flags |= (SAM_PINMUX_PERIPH_GET(pin)
 				  << SOC_GPIO_FUNC_POS);
+	} else if (port_func == SAM_PINMUX_FUNC_extra) {
+		/* configure analog pins as inputs or they do not function as expected*/
+		soc_pin.flags |= SOC_GPIO_FUNC_IN;
 	}
 
 	soc_gpio_configure(&soc_pin);
