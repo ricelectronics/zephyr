@@ -3,7 +3,7 @@
 # Copyright (c) 2018-2022 Intel Corporation
 # Copyright 2022 NXP
 # SPDX-License-Identifier: Apache-2.0
-
+from __future__ import annotations
 import os
 import hashlib
 import random
@@ -11,11 +11,19 @@ import logging
 import shutil
 import glob
 
-from twisterlib.testsuite import TestCase
+from twisterlib.testsuite import TestCase, TestSuite
+from twisterlib.platform import Platform
 from twisterlib.error import BuildError
 from twisterlib.size_calc import SizeCalculator
-from twisterlib.handlers import Handler, SimulationHandler, BinaryHandler, QEMUHandler, DeviceHandler, SUPPORTED_SIMS
-from twisterlib.harness import SUPPORTED_SIMS_IN_PYTEST
+from twisterlib.handlers import (
+    Handler,
+    SimulationHandler,
+    BinaryHandler,
+    QEMUHandler,
+    DeviceHandler,
+    SUPPORTED_SIMS,
+    SUPPORTED_SIMS_IN_PYTEST,
+)
 
 logger = logging.getLogger('twister')
 logger.setLevel(logging.DEBUG)
@@ -33,8 +41,8 @@ class TestInstance:
 
     def __init__(self, testsuite, platform, outdir):
 
-        self.testsuite = testsuite
-        self.platform = platform
+        self.testsuite: TestSuite = testsuite
+        self.platform: Platform = platform
 
         self.status = None
         self.reason = "Unknown"
@@ -46,12 +54,18 @@ class TestInstance:
 
         self.name = os.path.join(platform.name, testsuite.name)
         self.run_id = self._get_run_id()
-        self.build_dir = os.path.join(outdir, platform.name, testsuite.name)
+        self.dut = None
+        if testsuite.detailed_test_id:
+            self.build_dir = os.path.join(outdir, platform.name, testsuite.name)
+        else:
+            # if suite is not in zephyr, keep only the part after ".." in reconstructed dir structure
+            source_dir_rel = testsuite.source_dir_rel.rsplit(os.pardir+os.path.sep, 1)[-1]
+            self.build_dir = os.path.join(outdir, platform.name, source_dir_rel, testsuite.name)
 
         self.domains = None
 
         self.run = False
-        self.testcases = []
+        self.testcases: list[TestCase] = []
         self.init_cases()
         self.filters = []
         self.filter_type = None
@@ -176,7 +190,7 @@ class TestInstance:
         self.handler = handler
 
     # Global testsuite parameters
-    def check_runnable(self, enable_slow=False, filter='buildable', fixtures=[]):
+    def check_runnable(self, enable_slow=False, filter='buildable', fixtures=[], hardware_map=None):
 
         # running on simulators is currently not supported on Windows
         if os.name == 'nt' and self.platform.simulation != 'na':
@@ -208,6 +222,13 @@ class TestInstance:
                 target_ready = False
 
         testsuite_runnable = self.testsuite_runnable(self.testsuite, fixtures)
+
+        if hardware_map:
+            for h in hardware_map.duts:
+                if (h.platform == self.platform.name and
+                        self.testsuite_runnable(self.testsuite, h.fixtures)):
+                    testsuite_runnable = True
+                    break
 
         return testsuite_runnable and target_ready
 
@@ -282,15 +303,17 @@ class TestInstance:
             build_dir = self.build_dir
 
         fns = glob.glob(os.path.join(build_dir, "zephyr", "*.elf"))
-        fns.extend(glob.glob(os.path.join(build_dir, "zephyr", "*.exe")))
         fns.extend(glob.glob(os.path.join(build_dir, "testbinary")))
         blocklist = [
                 'remapped', # used for xtensa plaforms
                 'zefi', # EFI for Zephyr
-                '_pre' ]
+                'qemu', # elf files generated after running in qemu
+                '_pre']
         fns = [x for x in fns if not any(bad in os.path.basename(x) for bad in blocklist)]
-        if len(fns) != 1 and self.platform.type != 'native':
-            raise BuildError("Missing/multiple output ELF binary")
+        if not fns:
+            raise BuildError("Missing output binary")
+        elif len(fns) > 1:
+            logger.warning(f"multiple ELF files detected: {', '.join(fns)}")
         return fns[0]
 
     def get_buildlog_file(self) -> str:

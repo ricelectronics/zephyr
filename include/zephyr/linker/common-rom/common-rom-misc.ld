@@ -10,6 +10,10 @@
 	ITERABLE_SECTION_ROM(settings_handler_static, 4)
 #endif
 
+#if defined(CONFIG_SENSING)
+	ITERABLE_SECTION_ROM(sensing_sensor_info, 4)
+#endif
+
 #if defined(CONFIG_SENSOR_INFO)
 	ITERABLE_SECTION_ROM(sensor_info, 4)
 #endif
@@ -29,6 +33,15 @@
 #if defined(CONFIG_EMUL)
 	ITERABLE_SECTION_ROM(emul, 4)
 #endif /* CONFIG_EMUL */
+
+#if defined(CONFIG_ZBUS)
+	ITERABLE_SECTION_ROM(zbus_channel, 4)
+	ITERABLE_SECTION_ROM(zbus_channel_observation, 4)
+#endif /* CONFIG_ZBUS */
+
+#ifdef CONFIG_LLEXT
+	ITERABLE_SECTION_ROM(llext_const_symbol, 4)
+#endif /* CONFIG_LLEXT */
 
 	SECTION_DATA_PROLOGUE(symbol_to_keep,,)
 	{

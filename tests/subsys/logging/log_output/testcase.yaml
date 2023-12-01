@@ -3,15 +3,21 @@ common:
     - native_posix
 
 tests:
-  logging.log_output:
+  logging.output:
     tags:
       - log_output
       - logging
     extra_configs:
       - CONFIG_LOG_TIMESTAMP_64BIT=n
-  logging.log_output_ts64:
+  logging.output.ts64:
     tags:
       - log_output
       - logging
     extra_configs:
       - CONFIG_LOG_TIMESTAMP_64BIT=y
+  logging.output.thread_id:
+    tags:
+      - log_output
+      - logging
+    extra_configs:
+      - CONFIG_LOG_THREAD_ID_PREFIX=y

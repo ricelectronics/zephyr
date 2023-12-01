@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "sparkfun_thing_plus_nrf9160_common-pinctrl.dtsi"
+#include <zephyr/dt-bindings/input/input-event-codes.h>
 
 / {
 	model = "Sparkfun nRF9160 Thing Plus";
@@ -36,7 +37,16 @@
 		button0: button_0 {
 			gpios = <&gpio0 12 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
 			label = "Switch 1";
+			zephyr,code = <INPUT_KEY_0>;
 		};
+	};
+
+	/* TPS63031 Buck/Boost converter (provides 3.3V) */
+	pwr-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "pwr-3v3";
+		enable-gpios = <&gpio0 31 GPIO_ACTIVE_HIGH>;
+		regulator-always-on;
 	};
 
 	/* These aliases are provided for compatibility with samples */

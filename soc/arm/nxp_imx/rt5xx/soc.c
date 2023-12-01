@@ -12,10 +12,8 @@
  * hardware for the RT5XX platforms.
  */
 
-#include <zephyr/arch/arm/aarch32/nmi.h>
 #include <zephyr/init.h>
 #include <zephyr/devicetree.h>
-#include <zephyr/irq.h>
 #include <zephyr/linker/sections.h>
 #include <soc.h>
 #include "fsl_power.h"
@@ -366,6 +364,16 @@ static void clock_init(void)
 	RESET_PeripheralReset(kSDIO0_RST_SHIFT_RSTn);
 #endif
 
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(smartdma), okay) && CONFIG_DMA_MCUX_SMARTDMA
+	/* Power up SMARTDMA ram */
+	POWER_DisablePD(kPDRUNCFG_APD_SMARTDMA_SRAM);
+	POWER_DisablePD(kPDRUNCFG_PPD_SMARTDMA_SRAM);
+	POWER_ApplyPD();
+
+	RESET_ClearPeripheralReset(kSMART_DMA_RST_SHIFT_RSTn);
+	CLOCK_EnableClock(kCLOCK_Smartdma);
+#endif
+
 	DT_FOREACH_STATUS_OKAY(nxp_lpc_ctimer, CTIMER_CLOCK_SETUP)
 
 	/* Set up dividers. */
@@ -472,28 +480,12 @@ void imxrt_post_init_display_interface(void)
  */
 static int nxp_rt500_init(void)
 {
-
-	/* old interrupt lock level */
-	unsigned int oldLevel;
-
-	/* disable interrupts */
-	oldLevel = irq_lock();
-
 	/* Initialize clocks with tool generated code */
 	clock_init();
-
-	/*
-	 * install default handler that simply resets the CPU if configured in
-	 * the kernel, NOP otherwise
-	 */
-	NMI_INIT();
 
 #ifndef CONFIG_IMXRT5XX_CODE_CACHE
 	CACHE64_DisableCache(CACHE64_CTRL0);
 #endif
-
-	/* restore interrupt state */
-	irq_unlock(oldLevel);
 
 	return 0;
 }

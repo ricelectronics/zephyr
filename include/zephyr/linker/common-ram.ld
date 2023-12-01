@@ -27,6 +27,15 @@
 		. = ALIGN(CONFIG_ARCH_SW_ISR_TABLE_ALIGN);
 		*(_SW_ISR_TABLE_SECTION_SYMS)
 	} GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+
+#if defined(CONFIG_SHARED_INTERRUPTS)
+	SECTION_DATA_PROLOGUE(shared_sw_isr_table,,)
+	{
+		/* TODO: does this section require alignment? */
+		KEEP(*(_SHARED_SW_ISR_TABLE_SECTION_SYMS))
+	} GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+#endif
+
 #endif
 
         SECTION_DATA_PROLOGUE(device_states,,)
@@ -42,12 +51,12 @@
 	ITERABLE_SECTION_RAM(pm_device_slots, 4)
 #endif
 
-#if defined(CONFIG_HAS_DYNAMIC_DEVICE_HANDLES)
-	SECTION_DATA_PROLOGUE(device_handles,,)
+#if defined(CONFIG_DEVICE_DEPS_DYNAMIC)
+	SECTION_DATA_PROLOGUE(device_deps,,)
 	{
-#include "device-handles.ld"
+#include "device-deps.ld"
 	} GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
-#endif 	/* CONFIG_HAS_DYNAMIC_DEVICE_HANDLES */
+#endif 	/* CONFIG_DEVICE_DEPS_DYNAMIC */
 
 	ITERABLE_SECTION_RAM_GC_ALLOWED(log_mpsc_pbuf, 4)
 	ITERABLE_SECTION_RAM(log_msg_ptr, 4)
@@ -75,7 +84,10 @@
 	ITERABLE_SECTION_RAM_GC_ALLOWED(k_sem, 4)
 	ITERABLE_SECTION_RAM_GC_ALLOWED(k_event, 4)
 	ITERABLE_SECTION_RAM_GC_ALLOWED(k_queue, 4)
+	ITERABLE_SECTION_RAM_GC_ALLOWED(k_fifo, 4)
+	ITERABLE_SECTION_RAM_GC_ALLOWED(k_lifo, 4)
 	ITERABLE_SECTION_RAM_GC_ALLOWED(k_condvar, 4)
+	ITERABLE_SECTION_RAM_GC_ALLOWED(sys_mem_blocks_ptr, 4)
 
 	ITERABLE_SECTION_RAM(net_buf_pool, 4)
 
@@ -119,6 +131,15 @@
 	ITERABLE_SECTION_RAM(rtio_sqe_pool, 4)
 	ITERABLE_SECTION_RAM(rtio_cqe_pool, 4)
 #endif /* CONFIG_RTIO */
+
+#if defined(CONFIG_SENSING)
+	ITERABLE_SECTION_RAM(sensing_sensor, 4)
+#endif /* CONFIG_SENSING */
+
+#if defined(CONFIG_ZBUS)
+	ITERABLE_SECTION_RAM(zbus_observer, 4)
+	ITERABLE_SECTION_RAM(zbus_channel_observation_mask, 1)
+#endif /* CONFIG_ZBUS */
 
 #ifdef CONFIG_USERSPACE
 	_static_kernel_objects_end = .;
