@@ -216,24 +216,17 @@ static ALWAYS_INLINE void clock_init(void)
 	}
 }
 
-/**
- * @brief Perform basic hardware initialization at boot.
- *
- * This needs to be run at the very beginning.
- * So the init priority has to be 0 (zero).
- *
- * @return 0
- */
-static int atmel_sams70_init()
+void z_arm_platform_init(void)
 {
-	uint32_t key;
-
-	key = irq_lock();
-
-	SCB_EnableICache();
-
-	if (!(SCB->CCR & SCB_CCR_DC_Msk)) {
+	if (IS_ENABLED(CONFIG_CACHE_MANAGEMENT) && IS_ENABLED(CONFIG_ICACHE)) {
+		SCB_EnableICache();
+	} else {
+		SCB_DisableICache();
+	}
+	if (IS_ENABLED(CONFIG_CACHE_MANAGEMENT) && IS_ENABLED(CONFIG_DCACHE)) {
 		SCB_EnableDCache();
+	} else {
+		SCB_DisableDCache();
 	}
 
 	/*
@@ -246,14 +239,18 @@ static int atmel_sams70_init()
 
 	/* Setup system clocks */
 	clock_init();
+}
 
-	/* Install default handler that simply resets the CPU
-	 * if configured in the kernel, NOP otherwise
-	 */
-	NMI_INIT();
-
-	irq_unlock(key);
-
+/**
+ * @brief Perform basic hardware initialization at boot.
+ *
+ * This needs to be run at the very beginning.
+ * So the init priority has to be 0 (zero).
+ *
+ * @return 0
+ */
+static int atmel_sams70_init()
+{
 	/* Check that the CHIP CIDR matches the HAL one */
 	if (CHIPID->CHIPID_CIDR != CHIP_CIDR) {
 		LOG_WRN("CIDR mismatch: chip = 0x%08x vs HAL = 0x%08x",
