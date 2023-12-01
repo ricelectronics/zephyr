@@ -9,13 +9,14 @@ config SOC_SERIES_SAMS70
 	bool "Atmel SAMS70 MCU"
 	select ARM
 	select CPU_CORTEX_M7
-	select SOC_FAMILY_SAM
-	select CPU_HAS_FPU_DOUBLE_PRECISION
 	select CPU_CORTEX_M_HAS_DWT
-	select ASF
-	select XIP
 	select CPU_HAS_ARM_MPU
+	select CPU_HAS_FPU_DOUBLE_PRECISION
+	select SOC_FAMILY_SAM
+	select PLATFORM_SPECIFIC_INIT
+	select ASF
 	select HAS_SWO
+	select XIP
 	help
 	  Enable support for Atmel SAM S70 ARM Cortex-M7 Microcontrollers.
 	  Part No.: SAMS70J19B, SAMS70J20B,
