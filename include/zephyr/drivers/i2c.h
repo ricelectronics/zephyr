@@ -186,12 +186,6 @@ struct i2c_msg {
 	/** Length of buffer in bytes */
 	uint32_t	len;
 
-#if defined(CONFIG_I2C_INTERNAL_ADDRESSING)
-	uint32_t    reg_addr;
-
-	uint8_t     reg_addr_width;
-#endif
-
 	/** Flags for this message */
 	uint8_t		flags;
 };

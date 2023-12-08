@@ -55,9 +55,6 @@ config I2C_CALLBACK
 	help
 	  API and implementations of i2c_transfer_cb.
 
-config I2C_INTERNAL_ADDRESSING
-	bool "I2C messages support internal register addressing"
-
 config I2C_RTIO
 	bool "I2C RTIO API"
 	help
