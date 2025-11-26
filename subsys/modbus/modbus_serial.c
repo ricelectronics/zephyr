@@ -28,6 +28,7 @@ LOG_MODULE_REGISTER(modbus_serial, CONFIG_MODBUS_LOG_LEVEL);
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/crc.h>
 #include <modbus_internal.h>
+#include <soc.h>
 
 static void modbus_serial_tx_on(struct modbus_context *ctx)
 {
@@ -422,21 +423,118 @@ static int configure_gpio(struct modbus_context *ctx)
 
 	if (cfg->de != NULL) {
 		if (!device_is_ready(cfg->de->port)) {
+			LOG_ERR("DE GPIO port %s is not ready", cfg->de->port->name);
 			return -ENODEV;
 		}
 
+		LOG_INF("=== Modbus DE Pin Configuration (Driver Layer) ===");
+		LOG_INF("DE Pin: Port=%s, Pin=%u", cfg->de->port->name, cfg->de->pin);
+		LOG_INF("  Device Tree Flags: 0x%04x", cfg->de->dt_flags);
+		
+		// Decode GPIO flags
+		if (cfg->de->dt_flags & GPIO_ACTIVE_LOW) {
+			LOG_INF("  Active Level: LOW (GPIO_ACTIVE_LOW)");
+		} else {
+			LOG_INF("  Active Level: HIGH (GPIO_ACTIVE_HIGH)");
+		}
+		
+		// Check for pull-up/pull-down
+		if (cfg->de->dt_flags & GPIO_PULL_UP) {
+			LOG_INF("  Pull Configuration: Pull-up (GPIO_PULL_UP)");
+		} else if (cfg->de->dt_flags & GPIO_PULL_DOWN) {
+			LOG_INF("  Pull Configuration: Pull-down (GPIO_PULL_DOWN)");
+		} else {
+			LOG_INF("  Pull Configuration: None (no pull-up/pull-down)");
+		}
+		
+		// Check drive mode
+		if (cfg->de->dt_flags & GPIO_OPEN_DRAIN) {
+			LOG_INF("  Drive Mode: Open-drain (GPIO_OPEN_DRAIN)");
+		} else if (cfg->de->dt_flags & GPIO_OPEN_SOURCE) {
+			LOG_INF("  Drive Mode: Open-source (GPIO_OPEN_SOURCE)");
+		} else {
+			LOG_INF("  Drive Mode: Push-pull (GPIO_PUSH_PULL - default)");
+		}
+		
+		LOG_INF("  Configuring as: GPIO_OUTPUT_INACTIVE");
+		
 		if (gpio_pin_configure_dt(cfg->de, GPIO_OUTPUT_INACTIVE)) {
+			LOG_ERR("Failed to configure DE pin");
 			return -EIO;
 		}
+		
+		// Explicitly configure pull-up/pull-down via PIO registers
+		// The Zephyr GPIO driver doesn't automatically disable pull-up for output pins
+		// We need: pull-up disabled (PIO_PUDR) and pull-down enabled (PIO_PPDER)
+		#ifdef PIOD
+		{
+			const uint32_t pin_mask = (1UL << cfg->de->pin);
+			// Disable pull-up (write 1 to PIO_PUDR register)
+			PIOD->PIO_PUDR = pin_mask;
+			// Enable pull-down (write 1 to PIO_PPDER register)
+			PIOD->PIO_PPDER = pin_mask;
+			LOG_INF("  Explicitly configured pull-up/pull-down via PIO registers:");
+			LOG_INF("    - Disabled pull-up (PIO_PUDR)");
+			LOG_INF("    - Enabled pull-down (PIO_PPDER)");
+		}
+		#endif
+		
+		// Read initial pin state
+		int ret = gpio_pin_get_dt(cfg->de);
+		if (ret >= 0) {
+			LOG_INF("  Initial Pin State: %s", ret ? "HIGH" : "LOW");
+		} else {
+			LOG_WRN("  Initial Pin State: Unable to read (error: %d)", ret);
+		}
+		
+		// Read actual hardware PIO registers for PD18
+		// PD18 is on PIOD, pin 18
+		#ifdef PIOD
+		{
+			const uint32_t pin_mask = (1UL << cfg->de->pin);
+			uint32_t pio_psr = PIOD->PIO_PSR;
+			uint32_t pio_osr = PIOD->PIO_OSR;
+			uint32_t pio_mdsr = PIOD->PIO_MDSR;
+			uint32_t pio_ppdsr = PIOD->PIO_PPDSR;
+			uint32_t pio_pusr = PIOD->PIO_PUSR;
+			
+			LOG_INF("  Hardware PIO Registers (read from PIOD):");
+			LOG_INF("    PIO_PSR (PIO Status): 0x%08x - PD18 bit = %u (expected: 1 = PIO mode)", 
+				pio_psr, (pio_psr & pin_mask) ? 1 : 0);
+			LOG_INF("    PIO_OSR (Output Status): 0x%08x - PD18 bit = %u (expected: 1 = output)", 
+				pio_osr, (pio_osr & pin_mask) ? 1 : 0);
+			LOG_INF("    PIO_MDSR (Multi-drive Status): 0x%08x - PD18 bit = %u (expected: 0 = push-pull)", 
+				pio_mdsr, (pio_mdsr & pin_mask) ? 1 : 0);
+			LOG_INF("    PIO_PPDSR (Pull-down Status): 0x%08x - PD18 bit = %u (expected: 1 = pull-down enabled)", 
+				pio_ppdsr, (pio_ppdsr & pin_mask) ? 1 : 0);
+			LOG_INF("    PIO_PUSR (Pull-up Status): 0x%08x - PD18 bit = %u (expected: 0 = pull-up disabled)", 
+				pio_pusr, (pio_pusr & pin_mask) ? 1 : 0);
+			
+			// Compare with expected values
+			LOG_INF("  Register Status Check:");
+			LOG_INF("    PIO_PSR[18]: %s (expected: 1)", (pio_psr & pin_mask) ? "1 ✓" : "0 ✗");
+			LOG_INF("    PIO_OSR[18]: %s (expected: 1)", (pio_osr & pin_mask) ? "1 ✓" : "0 ✗");
+			LOG_INF("    PIO_MDSR[18]: %s (expected: 0)", (pio_mdsr & pin_mask) ? "1 ✗" : "0 ✓");
+			LOG_INF("    PIO_PPDSR[18]: %s (expected: 1)", (pio_ppdsr & pin_mask) ? "1 ✓" : "0 ✗");
+			LOG_INF("    PIO_PUSR[18]: %s (expected: 0)", (pio_pusr & pin_mask) ? "1 ✗" : "0 ✓");
+		}
+		#else
+		LOG_WRN("  PIOD not defined - cannot read hardware registers");
+		#endif
+		
+		LOG_INF("================================================");
 	}
 
 
 	if (cfg->re != NULL) {
 		if (!device_is_ready(cfg->re->port)) {
+			LOG_ERR("RE GPIO port %s is not ready", cfg->re->port->name);
 			return -ENODEV;
 		}
 
+		LOG_INF("RE Pin: Port=%s, Pin=%u", cfg->re->port->name, cfg->re->pin);
 		if (gpio_pin_configure_dt(cfg->re, GPIO_OUTPUT_INACTIVE)) {
+			LOG_ERR("Failed to configure RE pin");
 			return -EIO;
 		}
 	}
